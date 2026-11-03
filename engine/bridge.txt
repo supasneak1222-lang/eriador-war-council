@@ -1,0 +1,532 @@
+-- Bridge between the Eriador app and the War Council's rules (WarCouncil.lua, loaded before this).
+-- The app calls these functions with plain strings and gets JSON back.
+
+-- the War Council's TTS panels are not drawn: the app has its own screens
+rebuild = function() end
+applyXml = function() end
+pcall(function() resetScreen = function() end end)
+
+APP_PLAYER = { color = "White", steam_name = "Player", getSelectedObjects = function() return {} end,
+               getPointerPosition = function() return nil end }
+
+-- What happened to the pieces during an action (moves with their road paths, arrivals, removals): the app animates them.
+APP_EV = {}
+piecesOn = function(event, a, b, c)
+  local e = { ev = event }
+  if type(a) == "string" then e.kind = a end
+  if type(b) == "table" then e.id = b.id end
+  if type(a) == "number" then e.n = a; e.key = b end
+  if type(c) == "table" then local p = {}; for i, x in ipairs(c) do p[i] = x end; e.path = p end
+  APP_EV[#APP_EV + 1] = e
+end
+soundEvent = function(k) APP_EV[#APP_EV + 1] = { ev = "sound", key = k } end
+
+local function panel()
+  U = U or {}
+  U.All = U.All or { tab = "Turn", open = true, acting = "Good", sel = {}, f = {}, msg = nil, msgOk = false }
+  return U.All
+end
+
+-- after loading or starting a campaign: the app rolls dice itself (no physical dice on a table)
+local function appSettings()
+  if S and S.settings then S.settings.dice = "digital"; S.settings.hidden = S.settings.hidden and true or false end
+end
+
+-- Load a campaign: the War Council's saved state (JSON) or "" for a new, unstarted one.
+function appLoad(saved)
+  OUTBOX = {}
+  onLoad(saved or "")
+  appSettings()
+  panel()
+  return JSON.encode({ ok = S ~= nil })
+end
+
+-- Run one War Council action, as its own panel would: arg is "All~action~p1~p2...", fields fill the panel's form.
+function appAct(arg, fieldsJson, acting, queueJson)
+  local u = panel()
+  if acting and acting ~= "" then u.acting = acting end
+  local fields = (fieldsJson and fieldsJson ~= "") and JSON.decode(fieldsJson) or {}
+  for k, v in pairs(fields) do u.f[k] = v end
+  OUTBOX = {}
+  APP_EV = {}
+  CARGO_FX = {}
+  local dl0 = S.diceLog or {}
+  local lastDie = dl0[#dl0]          -- the log keeps 400 rolls: find the new ones after the last one we knew
+  local queue = (queueJson and queueJson ~= "") and JSON.decode(queueJson) or nil
+  if queue then DICE.mode, DICE.queue, DICE.qi, DICE.want, DICE.short, DICE.batch, DICE.inside = "replay", queue, 0, {}, false, nil, true end
+  local ok, err = pcall(ui, APP_PLAYER, arg)
+  if queue then DICE.mode, DICE.inside = "live", false end
+  appSettings()
+  local rolls = {}
+  local dl = S.diceLog or {}
+  local from = lastDie and (#dl + 1) or 1     -- not found (an undo restored an older log): nothing new was rolled
+  if lastDie and dl == dl0 or lastDie then for i = #dl, 1, -1 do if dl[i] == lastDie then from = i + 1; break end end end
+  for i = from, #dl do rolls[#rolls + 1] = dl[i] end
+  local msg = u.msg; if not ok then msg = tostring(err) end
+  return JSON.encode({ ok = ok and u.msgOk ~= false or false, msg = msg, confirm = u.confirm,
+                       out = OUTBOX, rolls = rolls, ev = APP_EV, cargo = CARGO_FX })
+end
+
+-- The campaign as the app needs it.
+function appState()
+  local out = {}
+  for k, v in pairs(S) do
+    if k ~= "snaps" then out[k] = v end
+  end
+  -- the log can be long: the latest entries are enough here
+  local log, n = {}, #(S.log or {})
+  for i = 1, n do log[#log + 1] = S.log[i] end
+  out.log = log
+  out.logTotal = n
+  out.battleAt = battleTerritories()
+  out.undo = (#(UNDO or {}) > 0) and UNDO[#UNDO].label or nil
+  out.stageName = S.started and STAGES[S.stage] or nil
+  out.income = {}
+  for i = 1, #S.terr do out.income[i] = income(i) end
+  -- what each side calls every army (the enemy may know it only as "Evil Army 3")
+  local armies = {}
+  for i, a in ipairs(S.armies) do
+    local c = {}
+    for k, v in pairs(a) do c[k] = v end
+    c.pub = { Good = aname(a, "Good"), Evil = aname(a, "Evil") }
+    c.know = {}
+    for _, sd in ipairs(SIDES) do
+      local tower = (sd ~= a.side) and towerSees(sd, a.loc) or false
+      c.know[sd] = { leader = (sd == a.side) or (a.seenLeader and a.seenLeader[sd]) or tower or false,
+                     units = (sd == a.side) or (a.seenUnits and a.seenUnits[sd]) or tower or false }
+    end
+    armies[i] = c
+  end
+  out.armies = armies
+  out.cap = { Good = armyCap("Good"), Evil = armyCap("Evil") }
+  out.count = { Good = armyPoints("Good"), Evil = armyPoints("Evil") }   -- points fielded, against the Point Cap
+  out.armyN = { Good = armyCount("Good"), Evil = armyCount("Evil") }
+  out.cityRoom = {}
+  for _, sd in ipairs(SIDES) do
+    local owned, cities = 0, 0
+    for _, x in ipairs(S.terr) do if x.owner == sd then owned = owned + 1; if x.b.city then cities = cities + 1 end end; for _, q in ipairs(x.q or {}) do if q.key == "city" and (q.side or x.owner) == sd then cities = cities + 1 end end end
+    out.cityRoom[sd] = { cities = cities, allowed = math.floor(owned / CITY_PER_TERR), owned = owned }
+  end
+  -- each side's special rules, and whether a declared one can be used now
+  out.specials = {}
+  for _, sd in ipairs(SIDES) do
+    local list = {}
+    for _, r in ipairs(rulesFor(sd)) do
+      local okD = r.declare and canDeclare(sd, r.key) or nil
+      list[#list + 1] = { key = r.key, name = r.name, text = r.text, auto = r.auto or false, declare = r.declare,
+                          ok = okD == true, why = (okD ~= true) and okD or nil, cooldown = r.declare and ruleCooldown(sd, r.key) or 0 }
+    end
+    out.specials[sd] = list
+  end
+  -- how many more of each agent a side may recruit (Supply Wagons have no limit)
+  out.agentRoom = {}
+  for _, sd in ipairs(SIDES) do
+    local room = {}
+    for typ, def in pairs(AGENTS) do
+      room[typ] = def.building and (countBuildings(sd, def.building) - countAgents(sd, typ)) or 99
+    end
+    out.agentRoom[sd] = room
+  end
+  out.agentDefs = AGENTS
+  local th = ALLIANCES[S.settings.theatre or "Eriador"] or {}
+  out.alliance = { Good = th.Good, Evil = th.Evil, usedGood = alliedArmy("Good") and true or false, usedEvil = alliedArmy("Evil") and true or false }
+  out.armyCost = ARMY_COST
+  -- what is written over each territory on the map (public), and each side's own secrets
+  out.markers = {}
+  for n, t in ipairs(S.terr) do
+    local lines = {}
+    if t.conq then lines[#lines + 1] = { t.conq.by, t.conq.held and (t.conq.by .. ": blocked by fortress") or (t.conq.by .. " conquering " .. (t.conq.prog or 0) .. "/" .. (t.conq.need or "?")) } end
+    for _, l in ipairs(actionLines(n)) do lines[#lines + 1] = { l[1] or "Neutral", l[2] } end
+    out.markers[n] = lines
+  end
+  out.secret = { Good = secretLines("Good"), Evil = secretLines("Evil") }
+  out.capitals = { Good = S.settings.capGood, Evil = S.settings.capEvil }
+  return JSON.encode(out)
+end
+
+-- Where a piece may go right now: { normal = {...}, march = {...}, retreat = bool }
+function appReach(kind, id)
+  id = tonumber(id)
+  if kind == "army" then
+    local a = armyById(id)
+    if not a then return "{}" end
+    if a.needsRetreat then return JSON.encode({ normal = retreatOptions(a), march = {}, retreat = true }) end
+    if a.status == "building" or (a.moved and not S.settings.override) then return JSON.encode({ normal = {}, march = {} }) end
+    local budget = armyMove(a) - (a.slow or 0)
+    local normal = moveRangeFor(a, true, budget)
+    local march = a.canMarch and moveRangeFor(a, true, budget + 1) or {}
+    return JSON.encode({ normal = normal, march = march })
+  else
+    local g = agentById(id)
+    if not g or g.army then return "{}" end
+    return JSON.encode({ normal = moveRangeFor(g, false, math.max(agentMoveLeft(g), S.settings.override and AGENTS[g.type].move or 0)), march = {} })
+  end
+end
+
+-- How `viewer` sees army a: what it is called, and whether its leader / contents are known.
+local function sees(viewer, side) return viewer == side or not S.settings.hidden or S.settings.override end
+local function knows(viewer, a)
+  if sees(viewer, a.side) then return true, true end
+  local tower = towerSees(viewer, a.loc)
+  return (a.seenLeader and a.seenLeader[viewer] or tower) and true or false, (a.seenUnits and a.seenUnits[viewer] or tower) and true or false
+end
+local function label(viewer, a) return sees(viewer, a.side) and a.name or aname(a, viewer) end
+local function hasSurgeon(a) for _, g in ipairs(S.agents) do if g.army == a.id then return true end end return false end
+
+-- A battle at territory n, as `viewer` may see it: who fights (with the choices when a side has several armies), conditions and siege.
+function appBattle(n, swap, viewer)
+  n = tonumber(n)
+  viewer = (viewer == "Good" or viewer == "Evil") and viewer or "Good"
+  local A, D, atkList, defList = battleSides(n, swap == "1")
+  local here = armiesIn(n)
+  local function brief(a)
+    if not a then return nil end
+    local lk, uk = knows(viewer, a)
+    local mine = sees(viewer, a.side)
+    local r = a.roster
+    return { id = a.id, name = label(viewer, a), side = a.side, leader = lk and (a.leader ~= "" and a.leader or "No leader") or nil,
+             size = uk and a.size or nil, damage = uk and (a.damage or 0) or nil, field = uk and fieldable(a) or nil,
+             carried = mine and (a.carried or 0) or nil, surgeon = mine and hasSurgeon(a) or false,
+             units = uk and r and r.units or nil, broken = uk and r and r.broken or nil, quartered = uk and r and r.quartered or nil,
+             others = #armiesIn(n, a.side) - 1, over = (mine and r and r.points and r.points > fieldable(a)) and
+               (a.name .. "'s roster is " .. r.points .. " pts, but it can only field " .. fieldable(a) .. " pts right now.") or nil }
+  end
+  local siege = S.terr[n].b.fort and S.terr[n].owner ~= "Neutral"
+  local al, dl = {}, {}
+  for _, a in ipairs(atkList) do al[#al + 1] = brief(a) end
+  for _, a in ipairs(defList) do dl[#dl + 1] = brief(a) end
+  local ok, mods = pcall(battleModifiers, n, A, D)
+  local cond = {}
+  for _, l in ipairs(ok and mods or {}) do      -- the enemy's real army names are hidden in the conditions too
+    for _, a in ipairs(here) do
+      if not sees(viewer, a.side) and a.name ~= "" then l = string.gsub(l, a.name:gsub("%p", "%%%0"), (label(viewer, a):gsub("%%", "%%%%"))) end
+    end
+    cond[#cond + 1] = l
+  end
+  local done = nil
+  for i = #S.battles, 1, -1 do local b = S.battles[i]; if b.t ~= S.turn then break end; if b.n == n then done = (S.settings.hidden and b["t" .. viewer]) or b.text; break end end
+  return JSON.encode({ n = n, atk = brief(A), def = brief(D), atkList = al, defList = dl, siege = siege,
+                       owner = S.terr[n].owner, conditions = cond, done = done })
+end
+
+-- "11 of 31 lost = 35% · broken"
+function appLost(id, v)
+  local a = armyById(tonumber(id))
+  local pct, txt = lostInfo(a, v)
+  return JSON.encode({ pct = pct, text = txt })
+end
+
+-- Everything the army screen shows beyond the army itself.
+function appArmyInfo(id)
+  local a = armyById(tonumber(id))
+  if not a then return "{}" end
+  local r = a.roster
+  local out = {
+    outOfSupplies = outOfSupplies(a) and true or false, inFriendly = inFriendlyLand(a) and true or false, upkeep = armyUpkeep(a),
+    field = fieldable(a), move = armyMove(a), slow = a.slow or 0, exh = a.exh or 0, surgeon = hasSurgeon(a),
+    wounds = a.wounds or {}, enemyKnows = { leader = a.seenLeader and a.seenLeader[OTHER[a.side]] or false, units = a.seenUnits and a.seenUnits[OTHER[a.side]] or false },
+    publicName = publicName(a), revealed = armyRevealed(a) and true or false,
+    replenishCost = replenishCost(a), upgradeCost = UPGRADE_COST, editCost = EDIT_COST, refund = disbandRefund(a) + (a.carried or 0),
+    stockHere = S.terr[a.loc].owner == a.side and (S.terr[a.loc].stock or 0) or nil,
+    rosterLine = r and rosterLine(r) or nil, rosterLines = r and r.lines or nil,
+    over = (r and r.points and r.points > fieldable(a)) and (r.points .. " pt roster, but it can only field " .. fieldable(a) .. " pts right now.") or nil,
+    cavalry = isCavalry(a) and true or false,
+  }
+  return JSON.encode(out)
+end
+
+-- What raising this army would cost, and what the List Builder text pasted for it says.
+function appRaisePreview(side, size, merc, allied, cav, terr)
+  size = tonumber(size) or 400
+  local cost = ARMY_COST[size] and ARMY_COST[size][1] or 0
+  if merc == "True" and allied ~= "True" then cost = cost + MERC[math.min(2, mercCount(side) + 1)].cost end
+  local n = tonumber(terr)
+  local turns = (ARMY_COST[size] and ARMY_COST[size][2] or 0) - ((n and S.terr[n].b.mustering) and 1 or 0)
+  local u = panel()
+  local rr = u.paste and u.paste.r_paste
+  local fit, warn = nil, {}
+  if rr then
+    fit = (rr.list and rosterFit(rr, side)) or "unknown"
+    if rr.approx then warn[#warn + 1] = "The Tabletop Simulator export has no points - set the army size yourself." end
+    if rr.points and rr.points > 1000 then warn[#warn + 1] = "This list is over 1000 points, the largest army size." end
+    if rr.points and rr.points > size then warn[#warn + 1] = "The roster is " .. rr.points .. " pts - more than a " .. size .. " pt army can field." end
+    if rr.mounted then warn[#warn + 1] = "Every model looks mounted - tick 'Cavalry only' if that's right." end
+  end
+  local cur = alliedArmy(side)
+  return JSON.encode({ cost = cost, turns = math.max(1, turns), regions = (cav == "True") and ((size == 400) and 3 or 2) or ((size == 400) and 2 or 1),
+                       stock = n and S.terr[n].stock or 0, roster = rr and (rosterLine(rr) .. " · General: " .. (rr.general or "?")) or nil,
+                       fit = fit, warn = warn, alliedBy = cur and cur.name or nil, mercs = mercCount(side) })
+end
+
+-- The territory screen's facts: conquest, fortress shields, borders, and every building with its cost, time and rules.
+function appTerrInfo(n, viewer)
+  n = tonumber(n)
+  local t = S.terr[n]
+  local side = (t.owner ~= "Neutral") and t.owner or viewer
+  local sh = fortShield(n)
+  local shields = {}
+  for _, m in ipairs(ADJ[n] or {}) do if fortShield(m) == n then shields[#shields + 1] = NAMES[m] end end
+  local nearFort = {}
+  if t.owner == "Neutral" then for _, x in ipairs(ADJ[n] or {}) do if S.terr[x].b.fort and S.terr[x].owner ~= "Neutral" then nearFort[#nearFort + 1] = { n = x, owner = S.terr[x].owner } end end end
+  local b = {}
+  for _, x in ipairs(BUILDINGS) do b[#b + 1] = { key = x.key, name = x.name, cost = x.cost, turns = buildTurns(side, x.key), rules = x.rules, desc = x.desc } end
+  local q = {}
+  for _, x in ipairs(t.q or {}) do local d = BUILDING_BY_KEY[x.key]; q[#q + 1] = { key = x.key, left = x.left, total = x.total or d.turns, halt = x.halt } end
+  return JSON.encode({ conquer = conquestNeed(n), shield = sh, shieldName = sh and NAMES[sh] or nil, shields = shields, nearFort = nearFort,
+                       borders = ADJ[n] or {}, capital = (n == S.settings.capGood) and "Good" or ((n == S.settings.capEvil) and "Evil" or nil),
+                       buildings = b, q = q, full = buildingCount(n) >= MAX_BUILDINGS })
+end
+
+-- Movement an agent has left this turn.
+function appAgentMove(id)
+  local g = agentById(tonumber(id))
+  return JSON.encode({ left = g and not g.army and agentMoveLeft(g) or 0, used = g and (g.mvUsed or 0) or 0 })
+end
+
+-- The save, as text (to keep in the browser, or copy elsewhere)
+function appSave() return JSON.encode(S) end
+
+-- What an army may do right now: its orders (with the reason when not allowed) and what it could sabotage.
+function appArmy(id)
+  local a = armyById(tonumber(id))
+  if not a then return "{}" end
+  local orders = {}
+  for _, k in ipairs({ "pillage", "sabotage", "scorch", "block", "dig", "sow" }) do
+    local okA = actionAllowed(a, k)
+    orders[#orders + 1] = { key = k, name = ACTIONS[k].name, rules = ACTIONS[k].rules, secret = ACTIONS[k].secret, ok = okA == true, why = (okA ~= true) and okA or nil }
+  end
+  local sab = {}
+  for _, item in ipairs(S.terr[a.loc].q or {}) do sab[#sab + 1] = BUILDING_BY_KEY[item.key].name .. " (" .. item.left .. "t left)" end
+  return JSON.encode({ orders = orders, sab = sab, order = a.order and { k = a.order.k, name = ACTIONS[a.order.k].name } or nil })
+end
+
+-- An agent's possible targets here.
+function appAgent(id)
+  local g = agentById(tonumber(id))
+  if not g then return "{}" end
+  local t = {}
+  for _, x in ipairs(agentTargets(g)) do t[#t + 1] = { key = x[1], label = x[2] } end
+  local st = nil
+  if isWagon(g) and g.route then pcall(function() st = isArmyRoute(g.route) and armyRouteStatus(g) or ("route turn " .. (g.route.idx or 1) .. " of " .. #g.route.legs) end) end
+  return JSON.encode({ targets = t, route = st, routeOn = g.route and g.route.on or false, wagonCap = WAGON_CAP })
+end
+
+-- The panel form as the War Council filled it (after reading a pasted army list).
+function appForm()
+  local u = panel()
+  return JSON.encode({ f = u.f, roster = u.pasteRoster and true or false })
+end
+
+-- A side's note on a territory (kept with the campaign; with hidden information only that side sees it).
+function appNote(n, side, text)
+  local t = S.terr[tonumber(n)]
+  if not t then return "{}" end
+  t.notes = t.notes or {}
+  t.notes[side] = text
+  return JSON.encode({ ok = true })
+end
+
+-- Campaign summary numbers, and the code for the campaign web page (the Chronicle).
+function appStats() return JSON.encode(campaignStats()) end
+function appWeb() return webExport() end
+
+-- A sound's link (empty clears it).
+function appSetSound(key, url)
+  S.settings.sounds = S.settings.sounds or {}
+  S.settings.sounds[key] = (url ~= "" and url) or nil
+  return JSON.encode({ ok = true })
+end
+
+-- The MESBG profile cards for an army's roster (names and image links).
+function appCards(id)
+  local a = armyById(tonumber(id))
+  if not a then return "[]" end
+  local out = {}
+  local ok, cards = pcall(armyCards, a)
+  for _, c in ipairs(ok and cards or {}) do out[#out + 1] = { name = c.n, origin = c.o, url = cardUrl(c) } end
+  return JSON.encode(out)
+end
+
+-- A wagon's route, laid out for the route editor: each turn's start, stops, what happens at each, and where it can go next.
+function appRoute(id)
+  local g = agentById(tonumber(id))
+  if not g then return "{}" end
+  local lib = {}
+  for i, rt in ipairs(S.routes or {}) do lib[#lib + 1] = { i = i, name = rt.name, start = rt.start } end
+  local r = g.route
+  if not r then return JSON.encode({ none = true, library = lib }) end
+  if isArmyRoute(r) then
+    local a = armyById(r.army)
+    local st = nil; pcall(function() st = armyRouteStatus(g) end)
+    return JSON.encode({ army = true, armyId = r.army, armyName = a and a.name or nil, depot = r.depot, on = r.on or false,
+                         problems = armyRouteProblems(r), status = st, library = lib,
+                         carried = a and (a.carried or 0) or 0, size = a and a.size or 0,
+                         upkeep = a and (inFriendlyLand(a) and 0 or armyUpkeep(a)) or 0 })
+  end
+  fixRoute(r)
+  local legs = {}
+  for k, leg in ipairs(r.legs) do
+    local steps = {}
+    for i, n in ipairs(leg.steps) do steps[i] = { n = n, act = leg.acts[i] or { k = "none" }, options = stepOptions(r, k, i) } end
+    legs[k] = { start = legStart(r, k), depart = leg.depart or { k = "none" }, steps = steps, next = stepOptions(r, k, #leg.steps + 1), summary = legSummary(r, k) }
+  end
+  return JSON.encode({ start = r.start, on = r.on or false, idx = r.idx or 1, legs = legs, problems = routeProblems(r), closed = routeClosed(r), library = lib })
+end
+function appRouteStep(id, k, s, n)
+  local g = agentById(tonumber(id))
+  if not g or not g.route then return JSON.encode({ ok = false, msg = "No route." }) end
+  local r = setRouteStep(g, tonumber(k), tonumber(s), tonumber(n))
+  return JSON.encode({ ok = r == true, msg = (r ~= true) and r or nil })
+end
+function appStopAmount(id, k, i, amt)
+  local g = agentById(tonumber(id))
+  if not g or not g.route then return "{}" end
+  setStopAmount(g, tonumber(k), tonumber(i), tonumber(amt))
+  return JSON.encode({ ok = true })
+end
+
+
+-- Players throwing their own dice: run the action quietly with the dice thrown so far, report which dice it still
+-- needs, and put everything back. The app throws those, then asks again (a tie or a follow-up roll may need more),
+-- and finally runs the action for real with every die (appAct with the queue).
+local function copyT(t, seen)
+  if type(t) ~= "table" then return t end
+  seen = seen or {}
+  if seen[t] then return seen[t] end
+  local o = {}; seen[t] = o
+  for k, v in pairs(t) do o[k] = copyT(v, seen) end
+  return o
+end
+function appDicePlan(arg, fieldsJson, acting, queueJson)
+  local u = panel()
+  if acting and acting ~= "" then u.acting = acting end
+  local fields = (fieldsJson and fieldsJson ~= "") and JSON.decode(fieldsJson) or {}
+  for k, v in pairs(fields) do u.f[k] = v end
+  local queue = (queueJson and queueJson ~= "") and JSON.decode(queueJson) or {}
+  local snap, uSnap, undoLen = stateSnap(), copyT(U), #UNDO
+  local outbox = OUTBOX
+  DICE.mode, DICE.queue, DICE.qi, DICE.want, DICE.short, DICE.batch = "replay", queue, 0, {}, false, nil
+  DICE.inside, QUIET = true, true
+  pcall(ui, APP_PLAYER, arg)
+  DICE.inside, QUIET, DICE.mode = false, false, "live"
+  local want = DICE.want or {}
+  local okR, data = pcall(stateRestore, snap)
+  if okR and type(data) == "table" then S = data end
+  local fresh = copyT(uSnap)
+  for k in pairs(U) do U[k] = nil end
+  for k, v in pairs(fresh) do U[k] = v end
+  while #UNDO > undoLen do table.remove(UNDO) end
+  OUTBOX = outbox
+  return JSON.encode({ want = want })
+end
+
+-- A route laid out on the map as a list of territories (starting where the wagon stands) with what happens at
+-- some of them: it is split into turns by the wagon's movement (roads count half), exactly as the editor would.
+-- acts: { ["<index in path>"] = "load"|"unload" } (index 1 = the start).
+function appRouteFromPath(id, pathJson, actsJson)
+  local g = agentById(tonumber(id))
+  if not g then return JSON.encode({ ok = false, msg = "No such wagon." }) end
+  local path = JSON.decode(pathJson) or {}
+  local acts = JSON.decode(actsJson or "{}") or {}
+  if #path < 2 then return JSON.encode({ ok = false, msg = "Pick at least one territory to travel to." }) end
+  if path[1] ~= g.loc then return JSON.encode({ ok = false, msg = "The route has to start where the wagon is." }) end
+  newRoute(g)
+  local r = g.route
+  local k = 1
+  local function act(i) local a = acts[tostring(i)]; return (a == "load" or a == "unload") and a or "none" end
+  if act(1) ~= "none" then setStopAct(g, 1, 0, act(1)) end
+  for i = 2, #path do
+    local n = tonumber(path[i])
+    local leg = fixLeg(r.legs[k])
+    local okHere = false
+    for _, x in ipairs(stepOptions(r, k, #leg.steps + 1)) do if x == n then okHere = true end end
+    if not okHere then
+      -- out of movement this turn: the next turn starts here
+      addRouteLeg(g); k = #r.legs
+      leg = fixLeg(r.legs[k])
+      okHere = false
+      for _, x in ipairs(stepOptions(r, k, 1)) do if x == n then okHere = true end end
+      if not okHere then return JSON.encode({ ok = false, msg = NAMES[n] .. " doesn't border " .. NAMES[tonumber(path[i - 1])] .. "." }) end
+    end
+    local res = addRouteStop(g, k, n)
+    if res ~= true then return JSON.encode({ ok = false, msg = res }) end
+    if act(i) ~= "none" then setStopAct(g, k, #r.legs[k].steps, act(i)) end
+  end
+  r.on = false
+  return JSON.encode({ ok = true, legs = #r.legs, closed = routeClosed(r), problems = routeProblems(r) })
+end
+
+-- What `side` still has to do this stage: each item names a piece or a territory to jump to.
+function appTodo(side)
+  local out = {}
+  local function add(t) out[#out + 1] = t end
+  if not S.started or S.winner then return JSON.encode(out) end
+  local st = STAGES[S.stage]
+  if st == "Priority" then
+    if not S.prio then add({ text = "Roll for priority" })
+    elseif not S.first and S.prio.winner == side then add({ text = "Choose who acts first" }) end
+  elseif st == "Logistics" then
+    for _, a in ipairs(S.armies) do
+      if a.side == side and a.status ~= "building" and not a.moved and not a.needsRetreat then
+        local budget = armyMove(a) - (a.slow or 0)
+        if #moveRangeFor(a, true, budget) > 0 then add({ text = a.name .. " hasn't moved", army = a.id, n = a.loc, kind = "move" }) end
+      end
+    end
+    for _, g in ipairs(S.agents) do
+      if g.side == side and not g.army and g.loc then
+        if g.type == "Supply Wagon" then
+          if not g.route then add({ text = (g.name or g.type) .. " has no supply route", agent = g.id, n = g.loc, kind = "route" }) end
+        elseif not g.moved and not g.acted then add({ text = (g.name or g.type) .. " hasn't moved or acted", agent = g.id, n = g.loc, kind = "agent" }) end
+      end
+    end
+  elseif st == "Building" then
+    local cheapest = math.huge
+    for _, x in ipairs(BUILDINGS) do if x.cost < cheapest then cheapest = x.cost end end
+    for n, t in ipairs(S.terr) do
+      if t.owner == side and (t.stock or 0) >= cheapest and #(t.q or {}) == 0 and buildingCount(n) < MAX_BUILDINGS then
+        add({ text = NAMES[n] .. ": " .. t.stock .. " RP and room to build", n = n, kind = "build" })
+      end
+    end
+  elseif st == "Battle" then
+    local fought = {}
+    for _, b in ipairs(S.battles or {}) do if b.t == S.turn then fought[b.n] = true end end
+    for _, n in ipairs(battleTerritories()) do if not fought[n] then add({ text = "Record the battle at " .. NAMES[n], n = n, kind = "battle" }) end end
+  elseif st == "Retreat" then
+    for _, a in ipairs(S.armies) do if a.side == side and a.needsRetreat then add({ text = a.name .. " must retreat", army = a.id, n = a.loc, kind = "retreat" }) end end
+  end
+  return JSON.encode(out)
+end
+
+-- A territory's past: who held it at the start of each turn, and the battles fought there.
+function appTerrHistory(n, viewer)
+  n = tonumber(n)
+  local held, last = {}, nil
+  local full = { G = "Good", E = "Evil", N = "Neutral" }
+  for _, sn in ipairs(S.snaps or {}) do
+    local ch = sn.o and string.sub(sn.o, n, n) or nil
+    if ch and ch ~= "" and (not last or last.t ~= sn.t) then
+      local who = full[ch] or ch
+      if last and last.who == who then last.to = sn.t
+      else last = { who = who, from = sn.t, to = sn.t, t = sn.t }; held[#held + 1] = last end
+      last.t = sn.t
+    end
+  end
+  local cur = S.terr[n].owner
+  if not last or last.who ~= cur then held[#held + 1] = { who = cur, from = S.turn, to = S.turn } else last.to = S.turn end
+  local battles = {}
+  for _, b in ipairs(S.battles or {}) do
+    if b.n == n then
+      local nm = b.names and (b.names[viewer] or b.names.All) or {}
+      battles[#battles + 1] = { t = b.t, win = b.win, outcome = b.outcome, a = nm[1], d = nm[2], atk = b.atkSide }
+    end
+  end
+  return JSON.encode({ held = held, battles = battles })
+end
+
+-- The figure an army's model turns into once the enemy learns who it is (a key in the app's leader library).
+function appSetFigure(id, fig)
+  local a = armyById(tonumber(id))
+  if not a then return JSON.encode({ ok = false }) end
+  a.figure = (fig and fig ~= "") and fig or nil
+  return JSON.encode({ ok = true })
+end

@@ -1,0 +1,51 @@
+-- Stand-ins for the Tabletop Simulator API, so the War Council's rules run headless (in the new app's engine).
+-- Messages the War Council would show in TTS are collected in OUTBOX for the app to display.
+OUTBOX = {}
+local function out(kind, msg, target) OUTBOX[#OUTBOX + 1] = { kind = kind, msg = tostring(msg), to = target } end
+function broadcastToAll(m) out('broadcast', m) end
+function broadcastToColor(m, color) out('broadcast', m, color) end
+function printToColor(m, color) out('print', m, color) end
+function printToAll(m) out('print', m) end
+function log() end
+
+-- the screen: the War Council's TTS panels aren't used by the app, so the UI calls do nothing
+UI = { loading = false }
+function UI.setXmlTable() end
+function UI.getXmlTable() return {} end
+function UI.setAttributes() end
+function UI.setAttribute() end
+function UI.setValue() end
+function UI.show() end
+function UI.hide() end
+
+-- timers run immediately (the app drives time itself)
+Wait = {}
+function Wait.frames(f) f(); return 0 end
+function Wait.time(f, t, reps) if reps == nil or reps == 1 or reps == 0 then f() end; return 0 end
+function Wait.condition(f, c) if c() then f() end; return 0 end
+function Wait.stop() end
+
+-- the table: no physical objects; the map board answers geometry questions from the app
+BOARD = { getName = function() return "Eriador Campaign Map" end, getGMNotes = function() return "" end }
+function BOARD.call(fn, p)
+  if fn == "territoryAt" then return TERRITORY_AT and TERRITORY_AT(p) or nil end
+  return nil
+end
+function getObjectFromGUID(g) if g == "e7a0b1" then return BOARD end return nil end
+function getAllObjects() return { BOARD } end
+function getObjects() return { BOARD } end
+function spawnObject() return nil end
+function spawnObjectData() return nil end
+function addHotkey() end
+self = { getGUID = function() return "c0c0a1" end, setName = function() end, setDescription = function() end,
+         getPosition = function() return { x = 0, y = 0, z = 0 } end }
+Notes = { tabs = {} }
+function Notes.getNotebookTabs() return Notes.tabs end
+function Notes.addNotebookTab(p) p.index = #Notes.tabs; table.insert(Notes.tabs, p) end
+function Notes.editNotebookTab(p) if Notes.tabs[p.index + 1] then Notes.tabs[p.index + 1].body = p.body end end
+function Notes.removeNotebookTab(i) table.remove(Notes.tabs, i + 1) end
+Player = { getPlayers = function() return {} end }
+MusicPlayer = { setCurrentAudioclip = function() end, play = function() end, pause = function() end,
+                getCurrentAudioclip = function() return nil end, player_status = "Stop", loaded = true }
+Time = { delta_time = 0.016, time = 0 }
+Global = {}

@@ -1,0 +1,122 @@
+-- JSON for the War Council outside Tabletop Simulator (TTS supplies JSON.encode/decode natively).
+-- Arrays are tables with keys 1..n and nothing else; empty tables encode as [] (as TTS's JSON does).
+JSON = {}
+do
+  local escapes = { ['"'] = '\\"', ['\\'] = '\\\\', ['\b'] = '\\b', ['\f'] = '\\f', ['\n'] = '\\n', ['\r'] = '\\r', ['\t'] = '\\t' }
+  local function esc(s)
+    return (string.gsub(s, '[%c"\\]', function(c) return escapes[c] or string.format('\\u%04x', string.byte(c)) end))
+  end
+  local function isArray(t)
+    local n = #t
+    local c = 0
+    for _ in pairs(t) do c = c + 1 end
+    return c == n
+  end
+  local enc
+  enc = function(v, out)
+    local tv = type(v)
+    if tv == 'table' then
+      if isArray(v) then
+        out[#out + 1] = '['
+        for i = 1, #v do if i > 1 then out[#out + 1] = ',' end; enc(v[i], out) end
+        out[#out + 1] = ']'
+      else
+        out[#out + 1] = '{'
+        local first = true
+        for k, x in pairs(v) do
+          if type(x) ~= 'function' then
+            if not first then out[#out + 1] = ',' end
+            first = false
+            out[#out + 1] = '"' .. esc(tostring(k)) .. '":'
+            enc(x, out)
+          end
+        end
+        out[#out + 1] = '}'
+      end
+    elseif tv == 'string' then out[#out + 1] = '"' .. esc(v) .. '"'
+    elseif tv == 'number' then
+      if v ~= v or v == math.huge or v == -math.huge then out[#out + 1] = 'null'
+      elseif math.type and math.type(v) == 'integer' then out[#out + 1] = tostring(v)
+      elseif v == math.floor(v) and math.abs(v) < 1e15 then out[#out + 1] = string.format('%d', v)
+      else out[#out + 1] = string.format('%.14g', v) end
+    elseif tv == 'boolean' then out[#out + 1] = v and 'true' or 'false'
+    else out[#out + 1] = 'null' end
+  end
+  function JSON.encode(v) local out = {}; enc(v, out); return table.concat(out) end
+
+  local function decodeErr(s, i, msg) error('JSON: ' .. msg .. ' at ' .. i, 0) end
+  local function skip(s, i) local _, e = string.find(s, '^[ \n\r\t]*', i); return e + 1 end
+  local parse
+  local function str(s, i)
+    local out, j = {}, i + 1
+    while true do
+      local c = string.sub(s, j, j)
+      if c == '' then decodeErr(s, j, 'unterminated string') end
+      if c == '"' then return table.concat(out), j + 1 end
+      if c == '\\' then
+        local e = string.sub(s, j + 1, j + 1)
+        local map = { b = '\b', f = '\f', n = '\n', r = '\r', t = '\t', ['"'] = '"', ['\\'] = '\\', ['/'] = '/' }
+        if e == 'u' then
+          local cp = tonumber(string.sub(s, j + 2, j + 5), 16)
+          j = j + 6
+          if cp >= 0xD800 and cp <= 0xDBFF and string.sub(s, j, j + 1) == '\\u' then
+            local lo = tonumber(string.sub(s, j + 2, j + 5), 16)
+            cp = 0x10000 + (cp - 0xD800) * 0x400 + (lo - 0xDC00); j = j + 6
+          end
+          out[#out + 1] = utf8.char(cp)
+        else
+          out[#out + 1] = map[e] or e; j = j + 2
+        end
+      else
+        local k = string.find(s, '["\\]', j)
+        if not k then decodeErr(s, j, 'unterminated string') end
+        out[#out + 1] = string.sub(s, j, k - 1); j = k
+      end
+    end
+  end
+  parse = function(s, i)
+    i = skip(s, i)
+    local c = string.sub(s, i, i)
+    if c == '{' then
+      local t = {}
+      i = skip(s, i + 1)
+      if string.sub(s, i, i) == '}' then return t, i + 1 end
+      while true do
+        local k; k, i = str(s, skip(s, i))
+        i = skip(s, i)
+        if string.sub(s, i, i) ~= ':' then decodeErr(s, i, 'expected :') end
+        local v; v, i = parse(s, i + 1)
+        t[k] = v
+        i = skip(s, i)
+        local d = string.sub(s, i, i)
+        if d == '}' then return t, i + 1 end
+        if d ~= ',' then decodeErr(s, i, 'expected , or }') end
+        i = i + 1
+      end
+    elseif c == '[' then
+      local t, n = {}, 0
+      i = skip(s, i + 1)
+      if string.sub(s, i, i) == ']' then return t, i + 1 end
+      while true do
+        local v; v, i = parse(s, i)
+        n = n + 1; t[n] = v
+        i = skip(s, i)
+        local d = string.sub(s, i, i)
+        if d == ']' then return t, i + 1 end
+        if d ~= ',' then decodeErr(s, i, 'expected , or ]') end
+        i = i + 1
+      end
+    elseif c == '"' then return str(s, i)
+    elseif string.sub(s, i, i + 3) == 'true' then return true, i + 4
+    elseif string.sub(s, i, i + 4) == 'false' then return false, i + 5
+    elseif string.sub(s, i, i + 3) == 'null' then return nil, i + 4
+    else
+      local num = string.match(s, '^-?%d+%.?%d*[eE]?[-+]?%d*', i)
+      if not num or num == '' then decodeErr(s, i, 'unexpected character') end
+      local v = tonumber(num)
+      if math.tointeger and v and v == math.floor(v) and not string.find(num, '[.eE]') then v = math.tointeger(v) end
+      return v, i + #num
+    end
+  end
+  function JSON.decode(s) local v = parse(s, 1); return v end
+end
