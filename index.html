@@ -1763,8 +1763,10 @@ let routeLeg = 1;
 function wagonBlock(g) {
   const R = JSON.parse(luaCall('appRoute', g.id)), terrOpt = (n) => opt(String(n), tname(n));
   const mine = S.armies.filter(a => a.side === g.side), depots = S.terr.map((t, i) => i + 1).filter(n => S.terr[n - 1].owner === g.side);
-  let h = `<h3>Cargo · ${g.carried || 0} of 400 RP</h3><div class="row"><button data-act="wload~${g.id}">Load all</button><button data-act="wunload~${g.id}">Unload all</button>
-    <button data-act="wauto~${g.id}" class="${g.autoUnload ? 'on' : ''}" title="Unload by itself into your stockpile whenever it stops in your land">Auto-unload ${g.autoUnload ? 'on' : 'off'}</button></div>`;
+  let h = `<h3>Cargo · ${g.carried || 0} of 400 RP</h3><div class="row"><input id="wAmt" type="number" min="1" max="400" step="25" placeholder="All" title="How much to load or unload. Leave it empty for as much as possible." style="width:80px">
+    <button data-act="wload~${g.id}" data-f="wAmt=wAmt">Load</button><button data-act="wunload~${g.id}" data-f="wAmt=wAmt">Unload</button>
+    <button data-act="wauto~${g.id}" class="${g.autoUnload ? 'on' : ''}" title="Unload by itself into your stockpile whenever it stops in your land">Auto-unload ${g.autoUnload ? 'on' : 'off'}</button></div>
+    <p class="hint">Type an amount of RP to load or unload, or leave it empty to load as much as fits or unload everything.</p>`;
   const supplyPicker = (label) => `<div class="form"><select id="sArmy">${mine.map(a => opt(a.name + ' #' + a.id, 'Supply ' + a.name, R.armyId === a.id)).join('')}</select>
     <select id="sDepot">${depots.map(n => opt(String(n), 'Load at ' + tname(n), R.depot ? n === R.depot : n === g.loc)).join('')}</select>
     <button class="gold" data-act="rsupply~${g.id}" data-f="sArmy=sArmy,sDepot=sDepot">${label}</button></div>`;

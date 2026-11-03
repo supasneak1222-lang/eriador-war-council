@@ -2016,16 +2016,18 @@ local function doUnload(g, amount)
   return true
 end
 
-function wagonLoadAll(g)
+function wagonLoadAll(g, amount)
   local ok = stageOk("Logistics"); if ok ~= true then return ok end
-  local r = doLoad(g)
+  if amount and amount <= 0 then amount = nil end
+  local r = doLoad(g, amount)
   pieceHook("cargo", "agent", g)
   return r
 end
 
-function wagonUnloadAll(g)
+function wagonUnloadAll(g, amount)
   local ok = stageOk("Logistics"); if ok ~= true then return ok end
-  local r = doUnload(g)
+  if amount and amount <= 0 then amount = nil end
+  local r = doUnload(g, amount)
   pieceHook("cargo", "agent", g)
   return r
 end
@@ -11320,8 +11322,8 @@ function uiRun(player, arg)
   elseif a == "wrecruit" then
     local ok2, g = recruitAgent(side, "Supply Wagon", numOf(f.wTerr))
     say(pk, ok2, ok2 == true and (g.name .. " recruited.") or nil); if ok2 == true then u.sel.wagon = g.id end
-  elseif a == "wload" then r = wagonLoadAll(agentById(p1)); say(pk, r, "Loaded.")
-  elseif a == "wunload" then r = wagonUnloadAll(agentById(p1)); say(pk, r, "Unloaded.")
+  elseif a == "wload" then r = wagonLoadAll(agentById(p1), numOf(f.wAmt)); say(pk, r, "Loaded.")
+  elseif a == "wunload" then r = wagonUnloadAll(agentById(p1), numOf(f.wAmt)); say(pk, r, "Unloaded.")
   elseif a == "wauto" then local g = agentById(p1); if g then g.autoUnload = not g.autoUnload end
   elseif a == "wmove" then r = moveAgent(agentById(p1), numOf(f.wDest)); say(pk, r, "Wagon moved.")
   elseif a == "act" then
