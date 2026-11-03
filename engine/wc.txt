@@ -1441,10 +1441,16 @@ end
 
 function transfer(side, fromE, toE, amount)
   local ok = stageOk("Logistics"); if ok ~= true then return ok end
-  amount = math.floor(tonumber(amount) or 0)
-  if amount <= 0 then return "Enter an amount." end
   local a, b = endpoint(fromE), endpoint(toE)
   if not a or not b then return "Choose where to move resources from and to." end
+  -- no amount: as much as the source has and the target can take
+  if amount == nil or tostring(amount) == "" then amount = math.min(a.get(), b.cap - b.get()) end
+  amount = math.floor(tonumber(amount) or 0)
+  if amount <= 0 then
+    if a.get() <= 0 then return a.label .. " has nothing to give." end
+    if b.cap - b.get() <= 0 then return b.label .. " is full." end
+    return "Enter an amount."
+  end
   if fromE == toE then return "Choose two different places." end
   if a.kind == "stock" and S.terr[a.loc].owner ~= side and not S.settings.override then return "You don't own that stockpile." end
   if b.kind == "stock" and S.terr[b.loc].owner ~= side and not S.settings.override then return "You don't own that stockpile." end

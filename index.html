@@ -1622,6 +1622,29 @@ function raisePreview() {
     ${/wolf ?pack/i.test(f.aList || '') ? note('The Wolf Pack of Angmar always counts as a cavalry-only army.') : ''}
     ${P.roster ? note(`Pasted roster: ${esc(P.roster)}`) + (P.fit ? note(FIT[P.fit][0], FIT[P.fit][1]) : '') : ''}${P.warn.map(w => note(esc(w), true)).join('')}`;
 }
+// Give or take RP between this army or wagon and another of yours: armies and wagons in the same territory,
+// and (army to army) armies in a neighbouring territory.
+function tradeBlock(kind, id) {
+  const me = kind === 'army' ? S.armies.find(a => a.id === id) : (S.agents || []).find(g => g.id === id);
+  if (!me || !me.loc || me.side !== acting) return '';
+  const cap = (x, k) => k === 'army' ? x.size : 400, lbl = (x, k) => k === 'army' ? x.name : (x.name || 'Supply Wagon');
+  const parts = [];
+  for (const a of S.armies) {
+    if (a.side !== me.side || a.status === 'building' || (kind === 'army' && a.id === id)) continue;
+    const next = a.loc !== me.loc && kind === 'army' && T[me.loc].adj.includes(a.loc);
+    if (a.loc === me.loc || next) parts.push([`${a.name}${next ? ', next door in ' + T[a.loc].name : ''} (${a.carried || 0}/${a.size} RP) [army:${a.id}]`, a]);
+  }
+  for (const g of (S.agents || [])) if (g.type === 'Supply Wagon' && g.side === me.side && g.loc === me.loc && !(kind === 'wagon' && g.id === id))
+    parts.push([`${g.name || 'Supply Wagon'} (${g.carried || 0}/400 RP) [wagon:${g.id}]`, g]);
+  if (!parts.length) return '';
+  const meVal = `${lbl(me, kind)} [${kind}:${id}]`;
+  return `<h3>Trade supplies</h3><div class="form"><input type="hidden" id="tMe" value="${esc(meVal)}">
+    <select id="tWith">${parts.map(p => opt(p[0], 'With ' + p[0].replace(/ \[.*\]$/, ''))).join('')}</select>
+    <div class="row"><input id="tAmt" type="number" min="1" placeholder="All" style="width:80px">
+      <button data-act="xfer" data-f="sFrom=tMe,sTo=tWith,sAmt=tAmt" title="From ${esc(lbl(me, kind))} to the one chosen">Give</button>
+      <button data-act="xfer" data-f="sFrom=tWith,sTo=tMe,sAmt=tAmt" title="From the one chosen to ${esc(lbl(me, kind))}">Take</button></div>
+    ${note(`${esc(lbl(me, kind))} carries ${me.carried || 0} of ${cap(me, kind)} RP. Leave the amount empty to move as much as fits. Armies carry up to their points value, wagons up to 400 RP.`)}</div>`;
+}
 // Move RP between a stockpile, armies and wagons in one territory (armies may also trade with neighbouring armies).
 function suppliesBlock(n) {
   const t = S.terr[n - 1], ends = [];
@@ -1711,6 +1734,7 @@ function armyCard(a) {
     h += `<h3>Supplies</h3>` + (I.stockHere != null ? `<div class="row"><input id="aRP" type="number" min="0" placeholder="all" style="width:80px">
       <button data-act="apick~${a.id}" data-f="aRP=aRP">Pick up</button><button data-act="adrop~${a.id}" data-f="aRP=aRP">Drop off</button><button data-act="afill~${a.id}">Fill up</button></div>
       ${note(`Stockpile here: ${I.stockHere} RP · room for ${Math.max(0, a.size - (a.carried || 0))} RP. Leave the amount empty to move as much as possible.`)}` : note(`No stockpile to use: ${esc(T[a.loc].name)} isn't yours.`));
+    h += tradeBlock('army', a.id);
   }
   if (stg === 'Building' || S.settings.override) {
     h += `<h3>Muster</h3><div class="grid2">
@@ -1767,6 +1791,7 @@ function wagonBlock(g) {
     <button data-act="wload~${g.id}" data-f="wAmt=wAmt">Load</button><button data-act="wunload~${g.id}" data-f="wAmt=wAmt">Unload</button>
     <button data-act="wauto~${g.id}" class="${g.autoUnload ? 'on' : ''}" title="Unload by itself into your stockpile whenever it stops in your land">Auto-unload ${g.autoUnload ? 'on' : 'off'}</button></div>
     <p class="hint">Type an amount of RP to load or unload, or leave it empty to load as much as fits or unload everything.</p>`;
+  if (S.stageName === 'Logistics' || S.settings.override) h += tradeBlock('wagon', g.id);
   const supplyPicker = (label) => `<div class="form"><select id="sArmy">${mine.map(a => opt(a.name + ' #' + a.id, 'Supply ' + a.name, R.armyId === a.id)).join('')}</select>
     <select id="sDepot">${depots.map(n => opt(String(n), 'Load at ' + tname(n), R.depot ? n === R.depot : n === g.loc)).join('')}</select>
     <button class="gold" data-act="rsupply~${g.id}" data-f="sArmy=sArmy,sDepot=sDepot">${label}</button></div>`;
