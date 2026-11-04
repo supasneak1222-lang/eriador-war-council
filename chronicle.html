@@ -2764,9 +2764,9 @@ async function videoExport() {
     const styles = await videoStyles();
     const mapData = await urlToDataURL(MAP_SRC);
     // the H.264 profile this machine can encode at this size
-    let codec = null;
-    for (const c of ["avc1.640033", "avc1.640028", "avc1.4d0033", "avc1.4d0028", "avc1.42e033", "avc1.42e028"]) {
-      try { const s = await VideoEncoder.isConfigSupported({ codec: c, width: VID.W, height: VID.H, bitrate: 14e6, framerate: VID.FPS }); if (s.supported) { codec = c; break; } } catch (e) {}
+    let codec = null, hw = "no-preference";
+    search: for (const h of ["prefer-hardware", "no-preference"]) for (const c of ["avc1.640033", "avc1.640028", "avc1.4d0033", "avc1.4d0028", "avc1.42e033", "avc1.42e028"]) {
+      try { const s = await VideoEncoder.isConfigSupported({ codec: c, width: VID.W, height: VID.H, bitrate: 14e6, framerate: VID.FPS, hardwareAcceleration: h }); if (s.supported) { codec = c; hw = h; break search; } } catch (e) {}
     }
     let vcodec = "avc";
     if (!codec) {   // no H.264 encoder here: VP9 in an MP4 still plays in browsers, VLC and most players
@@ -2775,7 +2775,7 @@ async function videoExport() {
     if (!codec) throw new Error("This browser can't encode video.");
     const vchunks = [];
     encoder = new VideoEncoder({ output: (chunk, meta) => vchunks.push([chunk, meta]), error: (e) => { X.err = e; } });
-    encoder.configure(Object.assign({ codec, width: VID.W, height: VID.H, bitrate: 14e6, framerate: VID.FPS }, vcodec === "avc" ? { avc: { format: "avc" } } : {}));
+    encoder.configure(Object.assign({ codec, width: VID.W, height: VID.H, bitrate: 14e6, framerate: VID.FPS, hardwareAcceleration: hw }, vcodec === "avc" ? { avc: { format: "avc" } } : {}));
     const cv = document.createElement("canvas"); cv.width = VID.W; cv.height = VID.H;
     const ctx = cv.getContext("2d");
     // the map's layers, each redrawn only when something in it changed or moves
@@ -2809,7 +2809,6 @@ async function videoExport() {
         ? `<svg xmlns="http://www.w3.org/2000/svg" class="map" style="background:transparent;border:0;box-shadow:none" width="${VID.W}" height="${VID.H}" viewBox="0 0 ${cw} ${ch}" preserveAspectRatio="none"><style>${css.replace(/<\/style/gi, "")}</style>${defs ? svgBase.querySelector("defs").outerHTML : ""}${body}</svg>`
         : `<svg xmlns="http://www.w3.org/2000/svg" width="${VID.W}" height="${VID.H}" viewBox="0 0 ${cw} ${ch}" preserveAspectRatio="none"><foreignObject x="0" y="0" width="${cw}" height="${ch}">` +
         `<div xmlns="http://www.w3.org/1999/xhtml" class="map" style="position:relative;width:${cw}px;height:${ch}px;margin:0;border:0;box-shadow:none;background:transparent;overflow:hidden"><style>${css.replace(/<\/style/gi, "")}</style>${defs}${body}</div></foreignObject></svg>`;
-      (window.__vdocs = window.__vdocs || {})[[...mapEl.children].indexOf(el)] = doc;
       const img = new Image();
       const loaded = new Promise((r, j) => { img.onload = r; img.onerror = () => j(new Error("A layer of the map couldn't be drawn.")); });
       img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(doc);
@@ -2859,7 +2858,7 @@ async function videoExport() {
       ST.vf = (ST.vf || 0) + C.real.now() - f0;
       n++;
       const e0 = C.real.now();
-      while (encoder.encodeQueueSize > 6) await new Promise((r) => C.real.st(r, 5));
+      while (encoder.encodeQueueSize > 20) await new Promise((r) => C.real.st(r, 4));
       ST.enc += C.real.now() - e0;
       if (X.err) throw X.err;
       // the end: the last turn shown, every animation settled, a few seconds to linger
@@ -2883,7 +2882,7 @@ async function videoExport() {
     msg.textContent = "Writing the file...";
     const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), fastStart: "in-memory", firstTimestampBehavior: "offset",
       video: { codec: vcodec, width: VID.W, height: VID.H, frameRate: VID.FPS },
-      audio: audio ? { codec: "aac", numberOfChannels: 2, sampleRate: audio.rate } : undefined });
+      audio: audio ? { codec: audio.codec, numberOfChannels: 2, sampleRate: audio.rate } : undefined });
     for (const [c, m] of vchunks) muxer.addVideoChunk(c, m);
     if (audio) for (const [c, m] of audio.chunks) muxer.addAudioChunk(c, m);
     muxer.finalize();
@@ -2905,8 +2904,9 @@ async function videoExport() {
 async function mixVideoAudio(X, seconds) {
   if (!window.AudioEncoder || !window.OfflineAudioContext) return null;
   const rate = 48000;
-  const cfg = { codec: "mp4a.40.2", sampleRate: rate, numberOfChannels: 2, bitrate: 192000 };
-  try { if (!(await AudioEncoder.isConfigSupported(cfg)).supported) return null; } catch (e) { return null; }
+  let cfg = null;
+  for (const c of ["mp4a.40.2", "opus"]) { const t = { codec: c, sampleRate: rate, numberOfChannels: 2, bitrate: 192000 }; try { if ((await AudioEncoder.isConfigSupported(t)).supported) { cfg = t; break; } } catch (e) {} }
+  if (!cfg) return null;
   const oc = new OfflineAudioContext(2, Math.ceil(seconds * rate), rate);
   const bufs = {};
   const load = async (url) => { if (!(url in bufs)) { try { bufs[url] = await oc.decodeAudioData(await (await fetch(url)).arrayBuffer()); } catch (e) { bufs[url] = null; } } return bufs[url]; };
@@ -2936,8 +2936,8 @@ async function mixVideoAudio(X, seconds) {
       const b = await load(SFX[e.name]); if (!b) continue;
       const s = oc.createBufferSource(); s.buffer = b;
       const g = oc.createGain(); const t = e.t / 1000; g.gain.setValueAtTime(SFX_VOL[e.name] || .5, t);
-      if (e.stopAt != null) { const st = e.stopAt / 1000; g.gain.setValueAtTime(SFX_VOL[e.name] || .5, st); g.gain.linearRampToValueAtTime(0, st + (e.fade || 600) / 1000); s.stop(st + (e.fade || 600) / 1000 + 0.05); }
       s.connect(g); g.connect(oc.destination); s.start(t);
+      if (e.stopAt != null) { const st = Math.max(t, e.stopAt / 1000); g.gain.setValueAtTime(SFX_VOL[e.name] || .5, st); g.gain.linearRampToValueAtTime(0, st + (e.fade || 600) / 1000); s.stop(st + (e.fade || 600) / 1000 + 0.05); }
     }
   }
   const out = await oc.startRendering();
@@ -2952,7 +2952,7 @@ async function mixVideoAudio(X, seconds) {
     enc.encode(ad); ad.close();
   }
   await enc.flush(); enc.close();
-  return { rate, chunks };
+  return { rate, chunks, codec: cfg.codec === "opus" ? "opus" : "aac" };
 }
 $("recBtn").addEventListener("click", videoExport);
 
