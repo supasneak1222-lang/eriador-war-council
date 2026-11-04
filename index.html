@@ -429,7 +429,7 @@ a.rule:hover{border-color:var(--gold)}
   <div class="lbody" id="setBody"></div></div></div>
 <div id="ledger" hidden><div class="lwrap"><div class="lhead"><h2>War Council ledger</h2><div class="ltabs" id="ledgerTabs"></div><button id="ledgerX" aria-label="Close">✕</button></div>
   <div class="lbody" id="ledgerBody"></div></div></div>
-<div id="drop" hidden>Drop your Tabletop Simulator save to load the campaign</div>
+<div id="drop" hidden>Drop your campaign file (or a Tabletop Simulator save) to load it</div>
 <input type="file" id="file" accept=".json,.txt" hidden>
 <div id="loading"><div>Opening the War Council…</div><div class="barw"><div class="barf" id="lf"></div></div><p id="lmsg">Loading the rules</p></div>
 
@@ -458,7 +458,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=58dd87c1e1').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=fdc9ff2ddf').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -2417,9 +2417,9 @@ function renderSettings() {
         : note('No music yet.'));
   } else if (setTab === 'Campaign') {
     const terrOpts = (sel) => Object.keys(T).map(n => opt(n + ' · ' + T[n].name, tname(+n), +n === sel)).join('');
-    h += `<h3>Save and load</h3><div class="row"><button data-c="export">Download the campaign</button><button data-c="load">Load a save</button>
+    h += `<h3>Save and load</h3><div class="row"><button data-c="export">Download the campaign</button><button data-c="load" title="Opens a file you made with Download the campaign, or a Tabletop Simulator save">Load a campaign file</button>
       <button data-twice2="reset" title="Throw away the turns played here and go back to the campaign from your TTS save">Reset to the TTS campaign</button></div>
-      <p class="hint">Download saves a War Council file. Load takes that file or a Tabletop Simulator save (you can also drop a file onto the table). Reset asks twice.</p>`;
+      <p class="hint">Download the campaign saves a file (named like <i>Eriador campaign - turn 14.json</i>). Load a campaign file opens that file again, or a Tabletop Simulator save; you can also drop the file onto the table. Reset asks twice.</p>`;
     const bks = backups();
     h += `<h3>Turn backups</h3>` + sw(st.backups !== false, 'backups', 'Back up at the start of every turn', 'Keeps the last 5 turns in this browser') +
       (bks.length ? bks.map(b => `<div class="item"><span>Turn ${b.turn} <small style="color:var(--dim)">· ${new Date(b.at).toLocaleString()}</small></span><button data-restore="${b.turn}">Restore</button></div>`).join('') : note('No backups yet: one is made when the next turn starts.'));
@@ -3943,7 +3943,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=58dd87c1e1').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=fdc9ff2ddf').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4151,7 +4151,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=58dd87c1e1').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=fdc9ff2ddf').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
