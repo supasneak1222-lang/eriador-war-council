@@ -66,6 +66,8 @@ h1, h2, h3 { font-family: var(--display); font-weight: 700; color: var(--ink); t
 .figsm.castle { display: inline-flex; align-items: center; justify-content: center; font-size: 15px; }
 .figtip { float: left; width: 44px; height: 44px; border-radius: 50%; object-fit: cover; margin: 2px 8px 2px 0; border: 1px solid var(--rule); background: #f3e7c9; }
 .figbig { float: right; width: 96px; height: 96px; border-radius: 50%; object-fit: cover; margin: 0 0 8px 12px; border: 2px solid var(--rule); background: #f3e7c9; }
+.player .btn.recording { background: #8e2f27; color: #fbf1d8; border-color: #5a1913; animation: recpulse 1.4s ease-in-out infinite; }
+@keyframes recpulse { 0%, 100% { opacity: 1; } 50% { opacity: .7; } }
 .sitenote { margin: 0 0 10px; padding: 8px 12px; border: 1px dashed var(--rule); font-size: 15px; color: var(--ink-2, inherit); }
 .tip { position: absolute; pointer-events: none; background: var(--paper-3); border: 1px solid var(--rule); padding: 6px 10px; font-size: 15px; max-width: 260px; box-shadow: 0 4px 14px rgba(0,0,0,.2); }
 .panel { display: flex; flex-direction: column; gap: 16px; }
@@ -552,6 +554,7 @@ svg.eclipsed > image { filter: brightness(.62) saturate(.7) hue-rotate(-8deg); t
         <label><input type="checkbox" id="frontToggle" checked> Front lines</label>
         <label><input type="checkbox" id="soundToggle" checked> Sound</label>
         <span class="musicctl"><label><input type="checkbox" id="musicToggle" checked> Music</label><input type="range" id="musicVol" min="0" max="100" value="70" aria-label="Music volume"><button class="btn mini" id="musicSkip" type="button" title="Next track" aria-label="Next track">&#9197;</button><span class="nowplaying" id="nowPlaying"></span></span>
+        <button class="btn" id="recBtn" type="button" hidden title="Plays the whole campaign from the first turn and saves it as a video">Save as video</button><span class="sub" id="recMsg" role="status"></span>
       </div>
       <div class="map" id="map"></div>
       <div class="maplegend" id="legend"></div>
@@ -788,10 +791,26 @@ function fightersOf(b) {
   let out;
   if (Array.isArray(b.armies) && b.armies.length) out = b.armies.map((x) => ({ ...x, s: x.s }));
   else {
+    // battles recorded before every army's fate was kept: the armies come from atkIds / defIds (when recorded),
+    // their names from the map's turns, and a losing army that never appears again was destroyed
     out = [];
-    const fate = (side) => !b.win ? "fought" : (b.win === side ? "won" : (b.outcome || "Broken"));
-    if (b.atkId != null) out.push({ id: b.atkId, s: b.atkSide, atk: true, nm: b.names && b.names[0], sz: b.atkSize, fate: fate(b.atkSide) });
-    if (b.defId != null) out.push({ id: b.defId, s: b.defSide, atk: false, nm: b.names && b.names[1], sz: b.defSize, fate: fate(b.defSide) });
+    const last = {};
+    frames.forEach((f) => f.a.forEach((a) => { last[a.id] = { a, f }; }));
+    const after = (id) => frames.some((f) => (f.t > b.t || (f.live && f.t === b.t && (f.stage || 0) >= 5)) && f.a.some((a) => a.id === id));
+    const fate = (id, side) => {
+      if (!b.win) return "fought";
+      if (b.win === side) return "won";
+      const later = frames.some((f) => f.t > b.t || f.live);
+      if (later && !after(id) && !frames.some((f) => f.live && f.a.some((a) => a.id === id))) return "Destroyed";
+      return b.outcome === "Destroyed" ? "Broken" : (b.outcome || "Broken");
+    };
+    const cas = b.cas || {};
+    const add = (id, side, atk, nm, sz) => { if (id == null || out.some((x) => x.id === id)) return;
+      const L = last[id]; out.push({ id, s: side, atk, nm: (L && L.a.nm) || nm, sz: (L && L.a.sz) || sz, fate: fate(id, side), cas: cas[String(id)], fg: L && L.a.fg }); };
+    add(b.atkId, b.atkSide, true, b.names && list(b.atkIds).length < 2 ? b.names[0] : null, b.atkSize);
+    list(b.atkIds).forEach((id) => add(id, b.atkSide, true));
+    add(b.defId, b.defSide, false, b.names && list(b.defIds).length < 2 ? b.names[1] : null, b.defSize);
+    list(b.defIds).forEach((id) => add(id, b.defSide, false));
   }
   Object.defineProperty(b, "_f", { value: out, enumerable: false });
   return out;
@@ -2628,6 +2647,48 @@ function play() {
 }
 function stopPlay() { playing = false; clearTimeout(playTimer); $("playBtn").textContent = "Play"; }
 
+// ---------- the replay as a video: the tab records itself, cropped to the map (Chrome and Edge save MP4)
+let rec = null;
+async function recordReplay() {
+  const btn = $("recBtn"), msg = $("recMsg");
+  if (rec) { if (rec.state !== "inactive") rec.stop(); return; }
+  let stream;
+  try {
+    msg.textContent = "Choose this tab to record, with its audio.";
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true, preferCurrentTab: true, selfBrowserSurface: "include", surfaceSwitching: "exclude" });
+  } catch (e) { msg.textContent = "Recording cancelled."; return; }
+  const track = stream.getVideoTracks()[0];
+  try { if (window.CropTarget && track.cropTo) await track.cropTo(await CropTarget.fromElement($("map"))); } catch (e) { /* the whole tab, then */ }
+  const types = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4;codecs=avc1,opus", "video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm"];
+  const type = types.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+  const chunks = [];
+  try { rec = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 8000000 } : {}); }
+  catch (e) { stream.getTracks().forEach((t) => t.stop()); msg.textContent = "This browser can't record video."; return; }
+  rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  rec.onstop = () => {
+    stream.getTracks().forEach((t) => t.stop());
+    const mp4 = /mp4/.test(rec.mimeType || type), blob = new Blob(chunks, { type: mp4 ? "video/mp4" : "video/webm" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = ($("title").textContent || "Chronicle").trim() + (mp4 ? ".mp4" : ".webm");
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 5000);
+    msg.textContent = mp4 ? "Saved as MP4." : "Saved as WebM (this browser doesn't record MP4).";
+    rec = null; btn.textContent = "Save as video"; btn.classList.remove("recording"); stopPlay();
+  };
+  track.addEventListener("ended", () => { if (rec && rec.state !== "inactive") rec.stop(); });
+  btn.textContent = "Stop and save"; btn.classList.add("recording"); msg.textContent = "Recording: the campaign plays from the first turn.";
+  closeInfo(); stopPlay(); showFrame(0, false);
+  await wait(1500);
+  if (!rec) return;
+  rec.start(1000);
+  play();
+  // the last turn shown and everything settled: finish
+  const watch = setInterval(() => {
+    if (!rec) { clearInterval(watch); return; }
+    if (!playing && performance.now() > animEnd + 2500) { clearInterval(watch); setTimeout(() => { if (rec && rec.state !== "inactive") rec.stop(); }, 2500); }
+  }, 500);
+}
+$("recBtn").addEventListener("click", recordReplay);
+
 $("prevTurn").addEventListener("click", () => { stopPlay(); showFrame(frameIdx - 1, true); });
 $("nextTurn").addEventListener("click", () => { stopPlay(); showFrame(frameIdx + 1, true); });
 $("frameSlider").addEventListener("input", (e) => { stopPlay(); showFrame(+e.target.value, true); });
@@ -3150,6 +3211,7 @@ if (SITE_CODE) {
   try { state = parseCode(SAVED); isExample = false; } catch (e) { state = parseCode(EXAMPLE); isExample = true; }
 } else { state = parseCode(EXAMPLE); isExample = true; }
 render();
+if (ON_SITE && navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia && window.MediaRecorder) $("recBtn").hidden = false;
 if (ON_SITE) {
   const note = document.createElement("div");
   note.className = "sitenote";

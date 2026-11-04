@@ -9087,7 +9087,8 @@ function webExport()
     end
     local e = { t = b.t, n = b.n, win = b.win, outcome = b.outcome, atkSide = b.atkSide, defSide = b.defSide, text = text,
                 atkSize = b.atkSize, defSize = b.defSize, atkId = b.atkId, defId = b.defId, names = nm,
-                armies = (#fought > 0) and fought or nil, garrison = b.garrison }
+                armies = (#fought > 0) and fought or nil, garrison = b.garrison,
+                atkIds = b.atkIds, defIds = b.defIds, cas = b.cas }
     table.insert(out.battles, e)
   end
   -- per-turn snapshots plus the live state as the last frame
