@@ -1604,22 +1604,37 @@ function applyBattle(p)
   for id, v in string.gmatch(tostring(p.cas or ""), "(%d+):(%d+)") do cas[tonumber(id)] = tonumber(v) end
   if cas[A.id] == nil then cas[A.id] = tonumber(p.casA) or 0 end
   if D and cas[D.id] == nil then cas[D.id] = tonumber(p.casD) or 0 end
-  local outcome = p.outcome or "Broken"
-  local calledRetreat = p.retreat and outcome ~= "Destroyed"
   local atkWon = p.winner == "atk"
   local WS_ = atkWon and AS or DS          -- the winning armies (empty when the garrison alone won)
   local LS_ = atkWon and DS or AS          -- the losing armies (empty when the garrison alone lost)
   local W, Lz = WS_[1], LS_[1]
-  if calledRetreat and not S.settings.override then
-    for _, x in ipairs(LS_) do
-      if retreatLocked(x) then return x.name .. " called the retreat on turn " .. x.retreatTurn .. " and can't do so again until turn " .. (x.retreatTurn + RETREAT_LOCK + 1) .. "." end
+  -- each losing army has its own outcome, and calls the retreat (or not) on its own.
+  -- p.outs "12:Destroyed,15:Broken" and p.rets "15"; p.outcome / p.retreat are the lead loser's (and the default)
+  local outs, rets = {}, {}
+  for id, o in string.gmatch(tostring(p.outs or ""), "(%d+):(%a+)") do outs[tonumber(id)] = o end
+  local anyRets = false
+  for id in string.gmatch(tostring(p.rets or ""), "%d+") do rets[tonumber(id)] = true; anyRets = true end
+  local function outOf(x)
+    local o = outs[x.id] or p.outcome or "Broken"
+    if o ~= "Broken" and o ~= "Quartered" and o ~= "Destroyed" then o = "Broken" end
+    return o
+  end
+  local function retOf(x)
+    if outOf(x) == "Destroyed" then return false end
+    if anyRets or p.outs then return rets[x.id] == true end
+    return p.retreat and x == Lz or false
+  end
+  for _, x in ipairs(LS_) do
+    if retOf(x) and not S.settings.override and retreatLocked(x) then
+      return x.name .. " called the retreat on turn " .. x.retreatTurn .. " and can't do so again until turn " .. (x.retreatTurn + RETREAT_LOCK + 1) .. "."
     end
   end
+  local outcome = Lz and outOf(Lz) or (p.outcome or "Broken")     -- the lead loser's, for the battle record
+  if Lz and retOf(Lz) then outcome = "Broken" end
   for _, x in ipairs(AS) do pcall(battleCancels, x) end
   for _, x in ipairs(DS) do pcall(battleCancels, x) end
   pcall(function() local up = table.unpack or unpack; eventAfterBattle(up(AS)); eventAfterBattle(up(DS)) end)
-  if calledRetreat then outcome = "Broken" end
-  if calledRetreat then for _, x in ipairs(LS_) do x.retreatTurn = S.turn end end
+  for _, x in ipairs(LS_) do if retOf(x) then x.retreatTurn = S.turn end end
   -- both sides saw each other's armies on the table
   for _, x in ipairs(AS) do for _, y in ipairs(DS) do
     x.seenLeader[y.side] = true; x.seenUnits[y.side] = true; y.seenLeader[x.side] = true; y.seenUnits[x.side] = true
@@ -1638,9 +1653,10 @@ function applyBattle(p)
   end
   local aNames, dNames = group(AS, "the attackers"), group(DS, "the garrison")
   local winNames = atkWon and aNames or dNames
-  local summary = { "Battle at " .. tname(n) .. ": " .. aNames .. " vs " .. dNames .. ". " ..
-                    winNames .. " won; the " .. ((#LS_ > 1) and "losers " or "loser ") ..
-                    (calledRetreat and "called the retreat and count" .. ((#LS_ > 1) and "" or "s") .. " as Broken." or (((#LS_ > 1) and "were " or "was ") .. outcome .. ".")) }
+  local function fate(x) return retOf(x) and "called the retreat and counts as Broken" or ("was " .. outOf(x)) end
+  local summary = { "Battle at " .. tname(n) .. ": " .. aNames .. " vs " .. dNames .. ". " .. winNames .. " won." }
+  if #LS_ == 1 then summary[1] = summary[1] .. " The loser " .. fate(LS_[1]) .. "."
+  else for _, x in ipairs(LS_) do table.insert(summary, R(x) .. " " .. fate(x) .. ".") end end
   -- casualties, army by army
   for _, x in ipairs(refs) do
     local c = cas[x.id] or 0
@@ -1675,6 +1691,7 @@ function applyBattle(p)
   end
   -- loot and retreat, loser by loser
   for _, x in ipairs(LS_) do
+    local outcome = retOf(x) and "Broken" or outOf(x)
     local carried = x.carried or 0
     local lost
     if outcome == "Destroyed" then lost = carried
@@ -1691,6 +1708,7 @@ function applyBattle(p)
     x.result = outcome
   end
   for _, x in ipairs(LS_) do
+    local outcome = retOf(x) and "Broken" or outOf(x)
     if outcome == "Destroyed" then
       table.insert(summary, R(x) .. " was destroyed.")
       removeArmy(x)
@@ -11337,7 +11355,7 @@ function uiRun(player, arg)
     r = applyBattle({ terr = numOf(f.r_bTerr), atk = idOf(f.r_bAtk),
                       def = (string.find(f.r_bDef or "", "Garrison", 1, true) and "garrison") or idOf(f.r_bDef),
                       winner = f.bWin, outcome = f.bOut or "Broken", casA = f.bCasA, casD = f.bCasD, duel = f.bDuel or "none",
-                      retreat = f.bRetreat == "True", atkAll = f.bAtkAll, defAll = f.bDefAll, cas = f.bCas })
+                      retreat = f.bRetreat == "True", atkAll = f.bAtkAll, defAll = f.bDefAll, cas = f.bCas, outs = f.bOuts, rets = f.bRets })
     say(pk, r, "Battle recorded. Losers retreat in the Retreat stage.")
     if r == true then f.bCasA, f.bCasD, f.bWin, f.bDuel, f.r_bLostA, f.r_bLostD, f.bRetreat = nil, nil, nil, nil, nil, nil, nil; u.bopen = nil end
   elseif a == "xfer" then

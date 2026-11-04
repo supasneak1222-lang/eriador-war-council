@@ -1278,7 +1278,7 @@ function renderLeft() {
   el.querySelectorAll('[data-open]').forEach(x => x.onclick = () => { openBattle(+x.dataset.open); });
   el.querySelectorAll('[data-back]').forEach(x => x.onclick = () => { battleOpen = null; renderLeft(); });
   el.querySelectorAll('[data-swap]').forEach(x => x.onclick = () => { battleSwap = !battleSwap; bForm.atk = bForm.def = null; renderLeft(); });
-  el.querySelectorAll('[data-bf]').forEach(x => x.oninput = x.onchange = () => { bForm[x.dataset.bf] = x.type === 'checkbox' ? x.checked : x.value; if (/^(atk|def|lost_\d+|in_\d+|win|out|retreat)$/.test(x.dataset.bf)) renderLeft(); });
+  el.querySelectorAll('[data-bf]').forEach(x => x.oninput = x.onchange = () => { bForm[x.dataset.bf] = x.type === 'checkbox' ? x.checked : x.value; if (/^(atk|def|lost_\d+|in_\d+|win|out_\d+|ret_\d+)$/.test(x.dataset.bf)) renderLeft(); });
   const apply = el.querySelector('#bApply'); if (apply) apply.onclick = applyBattle;
   el.querySelectorAll('[data-ev]').forEach(x => x.onclick = () => {
     const f = {}; for (const k of ['evMercT', 'evMercName', 'evMercLeader', 'evMercList']) if ($(k)) f[k] = $(k).value;
@@ -1369,11 +1369,21 @@ function battlePanel() {
   };
   const { atkIn, defIn } = battleArmies();
   // one row per army that fought: casualties %, or models lost (which fills in the % unless a % was typed)
+  const losers = (bForm.win === 'def') ? atkIn : defIn;
   const casRow = (a) => {
     const lk = 'lost_' + a.id, ck = 'cas_' + a.id, v = bForm[lk];
     const info = a.units && v !== undefined && v !== '' ? JSON.parse(luaCall('appLost', a.id, v)) : null;
     const pct = bForm[ck] ?? (info ? info.pct : '');
-    return `<div class="cas-row ${a.side}"><b>${esc(a.name)}</b>
+    const lost = losers.some(x => x.id === a.id);
+    let fate = '';
+    if (lost) {
+      const o = bForm['out_' + a.id] || 'Broken', full = S.armies.find(x => x.id === a.id), lock = full && full.retreatTurn && S.turn <= full.retreatTurn + 2;
+      fate = `<label>Outcome <select data-bf="out_${a.id}">${['Broken', 'Quartered', 'Destroyed'].map(k => opt(k, k, o === k)).join('')}</select></label>
+        ${o === 'Destroyed' ? '' : lock ? `<label class="dim"><input type="checkbox" disabled> Called the retreat · retreated on turn ${full.retreatTurn}, can again on turn ${full.retreatTurn + 3}</label>`
+          : `<label><input type="checkbox" data-bf="ret_${a.id}" ${bForm['ret_' + a.id] ? 'checked' : ''}> Called the retreat${bForm['ret_' + a.id] && o === 'Quartered' ? ' · counts as Broken' : ''}</label>`}
+        <small style="flex-basis:100%;color:var(--dim)">${OUT_TIPS[bForm['ret_' + a.id] && o !== 'Destroyed' ? 'Broken' : o]}</small>`;
+    }
+    return `<div class="cas-row ${a.side}"><b>${esc(a.name)}${lost ? ' <span class="pill warn">lost</span>' : ''}</b>${fate}
       <label>casualties % <input data-bf="${ck}" type="number" min="0" max="100" value="${esc(pct ?? '')}" placeholder="0" style="width:64px"></label>
       ${a.units ? `<label>or models lost <input data-bf="${lk}" type="number" min="0" max="${a.units}" value="${esc(v ?? '')}" placeholder="0" style="width:64px"></label>
       <small style="color:var(--dim)">${info && info.text ? esc(info.text) : `of ${a.units} models`}</small>` : ''}</div>`;
@@ -1397,13 +1407,8 @@ function battlePanel() {
     <h2 style="margin-top:12px;font-size:13px">Result</h2><div class="form">
       ${fought(B.atkList, 'Attacking', A)}${fought(B.defList, 'Defending', D)}
       <label>Winner <select data-bf="win">${opt('atk', an, bForm.win !== 'def')}${opt('def', dn, bForm.win === 'def')}</select></label>
-      <label>Loser was <select data-bf="out">${['Broken', 'Quartered', 'Destroyed'].map(o => opt(o, o, out === o)).join('')}</select></label>
-      <small style="color:var(--dim)">${OUT_TIPS[out]}</small>
-      ${(() => { const Ls = (bForm.win === 'def') ? atkIn : defIn, full = Ls.map(L => S.armies.find(x => x.id === L.id)).find(f => f && f.retreatTurn && S.turn <= f.retreatTurn + 2);
-        return full ? `<label class="dim"><input type="checkbox" disabled> Loser called the retreat · ${esc(full.name)} retreated on turn ${full.retreatTurn} and can't again until turn ${full.retreatTurn + 3}</label>`
-          : `<label><input type="checkbox" data-bf="retreat" ${bForm.retreat ? 'checked' : ''}> Loser called the retreat${bForm.retreat && out === 'Quartered' ? ' · counts as Broken, not Quartered' : ''}</label>`; })()}
-      <small style="color:var(--dim)">The retreat must be called the moment the army breaks. Once called, that army can't retreat again for the next 2 campaign turns.</small>
-      <h2 style="margin-top:10px;font-size:13px">Casualties</h2>
+      <h2 style="margin-top:10px;font-size:13px">Each army</h2>
+      <small style="color:var(--dim)">Every losing army has its own outcome and calls the retreat on its own: the retreat must be called the moment that army breaks, and it can't retreat again for the next 2 campaign turns.</small>
       ${[...atkIn, ...defIn].map(casRow).join('')}
       ${[...atkIn, ...defIn].some(a => a.units) ? '<small style="color:var(--dim)">Entering models lost fills in the casualty % for you.</small>' : ''}
       <label>Heroic duel <select data-bf="duel">${opt('none', 'None', duel === 'none')}${opt('atk', (A && A.leader && A.leader !== 'Leader unknown' ? A.leader : 'Attacker\'s leader') + ' won', duel === 'atk')}${opt('def', (D && D.leader ? D.leader : 'Defender\'s leader') + ' won', duel === 'def')}</select></label>
@@ -1420,7 +1425,9 @@ function applyBattle() {
   const r = act('bapply', { ...battleFields(), bWin: bForm.win || 'atk', bOut: bForm.out || 'Broken',
                             bCasA: String(A ? casOf(A) : 0), bCasD: String(D ? casOf(D) : 0), bCas: cas,
                             bAtkAll: atkIn.map(a => a.id).join(','), bDefAll: defIn.map(a => a.id).join(','),
-                            bDuel: bForm.duel || 'none', bRetreat: bForm.retreat ? 'True' : 'False' });
+                            bOuts: (bForm.win === 'def' ? atkIn : defIn).map(a => a.id + ':' + (bForm['out_' + a.id] || 'Broken')).join(','),
+                            bRets: (bForm.win === 'def' ? atkIn : defIn).filter(a => bForm['ret_' + a.id] && bForm['out_' + a.id] !== 'Destroyed').map(a => a.id).join(','),
+                            bDuel: bForm.duel || 'none', bRetreat: 'False' });
   if (r.ok) { battleOpen = null; bForm = {}; }
   renderLeft();
 }
