@@ -458,7 +458,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=f7b29c3f07').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=58dd87c1e1').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -2512,11 +2512,16 @@ function reportsTab() {
       <div class="row"><button data-r="edit~${r.id}">Edit</button><button data-twice2r="repdel~${r.id}">Delete</button></div>`;
   }
   if (repOpen) {
-    const r = repOpen === 'new' ? {} : (reps.find(x => x.id === repOpen) || {});
+    const r0 = repOpen === 'new' ? {} : (reps.find(x => x.id === repOpen) || {});
+    // what's been typed survives the panel being redrawn (any action, or the other player's, redraws it)
+    const D = repDraft.of === repOpen ? repDraft.f : (repDraft = { of: repOpen, f: {}, auto: {} }).f;
+    const keyOf = { rpTitle: 'title', rpScenario: 'scenario', rpGood: 'good', rpEvil: 'evil', rpResult: 'result', rpHero: 'hero', rpCas: 'cas', rpStory: 'story', rpMoments: 'moments', rpWinner: 'winner' };
+    const r = {}; for (const [id, k] of Object.entries(keyOf)) r[k] = D[id] ?? r0[k];
+    r.n = D.rpTerr != null ? +String(D.rpTerr).split(' ')[0] || null : r0.n;
     const bs = (S.battles || []).map((b, i) => [i + 1, b]).reverse();
     const inp = (id, label, v, area) => area ? `<label class="col">${label}<textarea id="${id}" rows="4">${esc(v || '')}</textarea></label>` : `<label class="col">${label}<input id="${id}" value="${esc(v || '')}"></label>`;
     return `<button data-r="list">‹ All reports</button><div class="form rep" style="margin-top:10px">
-      ${bs.length ? `<label class="col">From a recorded battle<select id="rpBattle"><option value="">(none)</option>${bs.map(([i, b]) => opt('#' + i, `Turn ${b.t} · ${b.n ? T[b.n].name : '?'} · ${b.win ? b.win + ' won' : ''}`)).join('')}</select></label>` : ''}
+      ${bs.length ? `<label class="col">From a recorded battle<select id="rpBattle"><option value="">(none)</option>${bs.map(([i, b]) => opt('#' + i, `Turn ${b.t} · ${b.n ? T[b.n].name : '?'} · ${b.win ? b.win + ' won' : ''}`, D.rpBattle === '#' + i)).join('')}</select></label><small style="color:var(--dim)">Choosing a battle fills in what the War Council knows about it.</small>` : ''}
       ${inp('rpTitle', 'Title', r.title)}${inp('rpScenario', 'Scenario', r.scenario)}
       <div class="row">${inp('rpGood', 'Good army', r.good)}${inp('rpEvil', 'Evil army', r.evil)}</div>
       <div class="row"><label class="col">Winner<select id="rpWinner">${['Good', 'Evil', 'Draw'].map(s => opt(s, s, (r.winner || 'Good') === s)).join('')}</select></label>${inp('rpResult', 'Result', r.result)}</div>
@@ -2529,11 +2534,47 @@ function reportsTab() {
     (reps.length ? reps.slice().reverse().map(r => `<div class="item" data-r="view~${r.id}"><span><b>${esc(r.title || 'Untitled battle')}</b><br><span style="color:var(--dim);font-size:14px">Turn ${r.t}${r.n ? ' · ' + esc(T[r.n].name) : ''} · ${esc(r.winner)} won</span></span></div>`).join('')
       : note('No reports yet. After a battle, press New report and write it up.'));
 }
+let repDraft = { of: null, f: {}, auto: {} };
+// what a recorded battle says, for a report: who fought on each side, who won, what became of each army
+function battleForReport(b) {
+  const nm = (b.names && (b.names[acting] || b.names.All)) || [];
+  const armies = b.armies && b.armies.length ? b.armies : null;
+  const sideNames = (side) => {
+    const list = armies ? armies.filter(x => x.s === side).map(x => x.nm) : [side === b.atkSide ? nm[0] : side === b.defSide ? nm[1] : null].filter(Boolean);
+    if (b.garrison && side === b.defSide) list.push('the garrison of ' + T[b.n].name);
+    return list.join(' and ');
+  };
+  const fate = (x) => x.fate === 'Retreated' ? 'called the retreat' : x.fate === 'won' ? null : String(x.fate || '').toLowerCase();
+  const result = armies ? armies.filter(x => fate(x)).map(x => `${x.nm} ${fate(x)}`).join('; ') : (b.outcome ? `The loser was ${String(b.outcome).toLowerCase()}` : '');
+  const cas = armies ? armies.map(x => `${x.nm} ${x.cas || 0}%`).join(', ')
+    : [b.casA != null && `${nm[0] || b.atkSide} ${b.casA}%`, b.casD != null && `${nm[1] || b.defSide} ${b.casD}%`].filter(Boolean).join(', ');
+  return { rpTitle: `Battle of ${T[b.n] ? T[b.n].name : 'the field'}`, rpGood: sideNames('Good'), rpEvil: sideNames('Evil'),
+           rpWinner: b.win === 'Good' || b.win === 'Evil' ? b.win : 'Draw', rpResult: result, rpCas: cas, rpTerr: b.n ? b.n + ' · ' + T[b.n].name : '' };
+}
 function wireReports(el) {
+  // keep what's typed, and fill in a chosen battle (only boxes that are empty or still hold an earlier fill)
+  el.querySelectorAll('.rep input, .rep textarea, .rep select').forEach(x => {
+    const save = () => { repDraft.f[x.id] = x.value; };
+    x.addEventListener('input', save); x.addEventListener('change', save);
+  });
+  const bb = el.querySelector('#rpBattle');
+  if (bb) bb.addEventListener('change', () => {
+    const i = +String(bb.value).replace('#', ''), b = (S.battles || [])[i - 1];
+    if (!b) return;
+    const fill = battleForReport(b);
+    for (const [id, v] of Object.entries(fill)) {
+      const box = $(id); if (!box || v == null || v === '') continue;
+      const cur = box.value, prevAuto = repDraft.auto[id];
+      if (cur && cur !== prevAuto && !(box.tagName === 'SELECT')) continue;    // something typed by hand stays
+      if (box.tagName === 'SELECT') { const o = [...box.options].find(o => o.value === v || o.value.startsWith(String(v).split(' ')[0] + ' ')); if (o) box.value = o.value; }
+      else box.value = v;
+      repDraft.f[id] = box.value; repDraft.auto[id] = box.value;
+    }
+  });
   el.querySelectorAll('[data-r]').forEach(b => b.onclick = () => {
     const [k, id] = b.dataset.r.split('~');
-    if (k === 'list') repOpen = null;
-    else if (k === 'new') repOpen = 'new';
+    if (k === 'list') { repOpen = null; repDraft = { of: null, f: {}, auto: {} }; }
+    else if (k === 'new') { repOpen = 'new'; repDraft = { of: 'new', f: {}, auto: {} }; }
     else if (k === 'view') repOpen = { view: +id };
     else if (k === 'edit') repOpen = +id;
     else if (k === 'save') {
@@ -2542,6 +2583,7 @@ function wireReports(el) {
       const bb = $('rpBattle'); if (bb && bb.value) act('repfill', { rpBattle: bb.value, rpTerr: f.rpTerr }, true);
       act('repsave', f);
       const reps = S.reports || []; repOpen = { view: (repOpen === 'new' ? reps[reps.length - 1] : reps.find(x => x.id === repOpen) || {}).id };
+      repDraft = { of: null, f: {}, auto: {} };
     }
     renderSettings();
   });
@@ -3901,7 +3943,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=f7b29c3f07').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=58dd87c1e1').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4109,7 +4151,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=f7b29c3f07').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=58dd87c1e1').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
