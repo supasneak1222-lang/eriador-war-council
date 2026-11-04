@@ -456,7 +456,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=6d7ce09be8').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=bef5f1b980').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -3873,7 +3873,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=6d7ce09be8').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=bef5f1b980').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4081,7 +4081,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=6d7ce09be8').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=bef5f1b980').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4373,13 +4373,14 @@ async function netHost(side, code) {
   } catch (e) { toast(e.message || String(e), 'err'); netLeave(true); }
 }
 // --- joining
-async function netJoin(code) {
+async function netJoin(code, retry) {
   code = String(code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (code.length < 4) { toast('That game code looks too short.', 'err'); return; }
   try {
     const Peer = await loadPeer();
     netClosePeer();
-    NET.role = 'guest'; NET.code = code; NET.status = 'connecting'; NET.v = 0; NET.out = null; NET.inflight = false; netUI(); renderSettings();
+    if (!retry) NET.retries = 0;
+    NET.role = 'guest'; NET.code = code; NET.status = NET.status === 'nohost' && retry ? 'nohost' : 'connecting'; NET.v = 0; NET.out = null; NET.inflight = false; netUI(); renderSettings();
     const peer = NET.peer = new Peer({ debug: 1 });
     const connect = () => {
       if (NET.peer !== peer || NET.role !== 'guest') return;
@@ -4390,7 +4391,7 @@ async function netJoin(code) {
         if (NET.conn !== conn || NET.role !== 'guest') return;
         NET.conn = null; NET.inflight = false; NET.status = 'connecting'; netUI(); renderSettings();
         toast(`Lost the ${NET.hostSide || 'host'} player. Trying to reconnect…`, 'err');
-        setTimeout(connect, 4000);
+        setTimeout(() => { if (NET.role === 'guest' && NET.peer === peer && !isOpen()) netJoin(code, true); }, 4000);
       });
     };
     peer.on('open', connect);
@@ -4401,7 +4402,7 @@ async function netJoin(code) {
         NET.status = 'nohost'; NET.conn = null; netUI(); renderSettings();
         NET.retries = (NET.retries || 0) + 1;
         if (NET.retries === 1) toast('No game is running with that code yet. Waiting for the host to open the War Council…', 'err');
-        setTimeout(connect, 5000);
+        setTimeout(() => { if (NET.role === 'guest' && NET.peer === peer && !isOpen()) netJoin(code, true); }, 5000);
       } else if (e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error') { NET.status = 'offline'; netUI(); }
     });
   } catch (e) { toast(e.message || String(e), 'err'); netLeave(true); }
