@@ -206,6 +206,9 @@ h3 button.link{font-family:var(--display);font-size:12px;letter-spacing:.08em;te
 #keysHelp kbd{font:12px var(--display);background:#2a1f14;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 6px;color:var(--ink)}
 @keyframes popin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 #hover b{font-family:var(--display);font-size:13px;color:var(--gold)}
+.cas-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:6px 8px;margin:4px 0;border-left:3px solid var(--line);background:#00000022;border-radius:0}
+.cas-row.Good{border-left-color:var(--good)}.cas-row.Evil{border-left-color:var(--evil)}.cas-row b{flex-basis:100%;font-size:14px}
+.fought{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;margin:2px 0}.fought small{flex-basis:100%;color:var(--dim)}
 .net-chip{display:flex;align-items:center;gap:6px;font-family:var(--display);font-size:11px;letter-spacing:.05em;color:var(--dim2);padding:4px 9px;border:1px solid var(--line);border-radius:6px;background:#1d150dcc;cursor:pointer;white-space:nowrap}
 .net-chip .dot{width:8px;height:8px;border-radius:50%;background:#6b5a44;display:inline-block}.net-chip .dot.on{background:#6fd08a;box-shadow:0 0 6px #6fd08a}
 .net-chip.err{border-color:#a0402c;color:#f0a58e}.net-chip.join{cursor:default;color:var(--gold)}.net-chip.join button{padding:3px 8px;font-size:11px}
@@ -1275,7 +1278,7 @@ function renderLeft() {
   el.querySelectorAll('[data-open]').forEach(x => x.onclick = () => { openBattle(+x.dataset.open); });
   el.querySelectorAll('[data-back]').forEach(x => x.onclick = () => { battleOpen = null; renderLeft(); });
   el.querySelectorAll('[data-swap]').forEach(x => x.onclick = () => { battleSwap = !battleSwap; bForm.atk = bForm.def = null; renderLeft(); });
-  el.querySelectorAll('[data-bf]').forEach(x => x.oninput = x.onchange = () => { bForm[x.dataset.bf] = x.type === 'checkbox' ? x.checked : x.value; if (/^(atk|def|lostA|lostD|out|retreat)$/.test(x.dataset.bf)) renderLeft(); });
+  el.querySelectorAll('[data-bf]').forEach(x => x.oninput = x.onchange = () => { bForm[x.dataset.bf] = x.type === 'checkbox' ? x.checked : x.value; if (/^(atk|def|lost_\d+|in_\d+|win|out|retreat)$/.test(x.dataset.bf)) renderLeft(); });
   const apply = el.querySelector('#bApply'); if (apply) apply.onclick = applyBattle;
   el.querySelectorAll('[data-ev]').forEach(x => x.onclick = () => {
     const f = {}; for (const k of ['evMercT', 'evMercName', 'evMercLeader', 'evMercList']) if ($(k)) f[k] = $(k).value;
@@ -1325,6 +1328,12 @@ function battleData() {
   if (!D && B.siege) garrison = true;
   return { n, B, A, D, garrison, defOpts };
 }
+// the armies that fought on each side: the lead army always, the others unless unticked
+function battleArmies() {
+  const { B, A, D } = battleData();
+  const pick = (list, lead) => { const out = lead ? [lead] : []; for (const a of list) if (!lead || a.id !== lead.id) if (bForm['in_' + a.id] !== false) out.push(a); return out; };
+  return { atkIn: pick(B.atkList, A), defIn: pick(B.defList, D) };
+}
 function battleFields() {
   const { n, A, D } = battleData();
   return { r_bTerr: String(n), r_bAtk: A ? 'a #' + A.id : '', r_bDef: D ? 'd #' + D.id : 'Garrison only (400 pts)' };
@@ -1358,39 +1367,45 @@ function battlePanel() {
     const third = [a.surgeon && 'Surgeon attached', a.carried != null && `Carrying ${a.carried} RP`, a.units && `${a.units} models, broken at ${a.broken ?? '?'} dead`].filter(Boolean).join(' · ');
     return `<div class="${sd}"><span class="pill ${sd}">${role}</span><b>${esc(a.name)}</b>${esc(a.leader || 'Leader unknown')} · ${a.size ? `${a.size} pts · ${a.damage ? `field as ${a.field} (−${a.damage}%)` : 'full strength'}` : 'units unknown'}${third ? `<br>${esc(third)}` : ''}</div>`;
   };
-  const lostRow = (key, a) => {
-    if (!a || !a.units) return '';
-    const v = bForm[key], info = v !== undefined && v !== '' ? JSON.parse(luaCall('appLost', a.id, v)) : null;
-    return `<label>${esc(a.name)} models lost <input data-bf="${key}" type="number" min="0" max="${a.units}" value="${esc(v ?? '')}" placeholder="0" style="width:64px"></label>
-      <small style="color:var(--dim)">${info && info.text ? esc(info.text) : `of ${a.units} models`}</small>`;
+  const { atkIn, defIn } = battleArmies();
+  // one row per army that fought: casualties %, or models lost (which fills in the % unless a % was typed)
+  const casRow = (a) => {
+    const lk = 'lost_' + a.id, ck = 'cas_' + a.id, v = bForm[lk];
+    const info = a.units && v !== undefined && v !== '' ? JSON.parse(luaCall('appLost', a.id, v)) : null;
+    const pct = bForm[ck] ?? (info ? info.pct : '');
+    return `<div class="cas-row ${a.side}"><b>${esc(a.name)}</b>
+      <label>casualties % <input data-bf="${ck}" type="number" min="0" max="100" value="${esc(pct ?? '')}" placeholder="0" style="width:64px"></label>
+      ${a.units ? `<label>or models lost <input data-bf="${lk}" type="number" min="0" max="${a.units}" value="${esc(v ?? '')}" placeholder="0" style="width:64px"></label>
+      <small style="color:var(--dim)">${info && info.text ? esc(info.text) : `of ${a.units} models`}</small>` : ''}</div>`;
   };
-  // models lost fill in the casualty % unless a % was typed
-  const pctA = bForm.casA ?? (bForm.lostA && A && A.units ? JSON.parse(luaCall('appLost', A.id, bForm.lostA)).pct : '');
-  const pctD = bForm.casD ?? (bForm.lostD && D && D.units ? JSON.parse(luaCall('appLost', D.id, bForm.lostD)).pct : '');
-  const an = A ? A.name : 'Attacker', dn = D ? D.name : garrison ? 'Garrison' : 'Defender';
+  const fought = (list, side, lead) => list.length > 1 ? `<div class="fought"><small>${side} armies in the battle (untick any that took no part)</small>${list.map(a => lead && a.id === lead.id
+    ? `<label class="dim"><input type="checkbox" checked disabled> ${esc(a.name)} · leading</label>`
+    : `<label><input type="checkbox" data-bf="in_${a.id}" ${bForm['in_' + a.id] === false ? '' : 'checked'}> ${esc(a.name)}</label>`).join('')}</div>` : '';
+  const names = (list, fb) => list.length ? list.map(a => a.name).join(' & ') : fb;
+  const an = names(atkIn, 'Attacker'), dn = names(defIn, garrison ? 'Garrison' : 'Defender') + (B.siege && defIn.length ? ' & garrison' : '');
   const out = bForm.out || 'Broken', duel = bForm.duel || 'none';
   let h = `<div class="panel" data-n="${n}"><div class="row" style="justify-content:space-between"><button data-back>‹ All battles</button>
       <button data-swap title="The army that moved in this turn attacks. Swap if it was the other way round.">Swap sides</button></div>
     <h2 style="margin-top:8px">${esc(tname(n))}${B.siege ? ' · siege' : ''}</h2>
-    ${B.atkList.length > 1 ? `<label>Attacking army <select data-bf="atk">${B.atkList.map(a => opt(String(a.id), a.name, A && a.id === A.id)).join('')}</select></label>` : ''}
-    ${defOpts.length > 1 ? `<label>Defending <select data-bf="def">${defOpts.map(o => opt(o.v, o.a ? o.a.name : 'Garrison only (400 pts)', garrison ? o.v === 'garrison' : D && o.a && o.a.id === D.id)).join('')}</select></label>` : ''}
+    ${B.atkList.length > 1 ? `<label>Leading the attack <select data-bf="atk">${B.atkList.map(a => opt(String(a.id), a.name, A && a.id === A.id)).join('')}</select></label>` : ''}
+    ${defOpts.length > 1 ? `<label>Leading the defence <select data-bf="def">${defOpts.map(o => opt(o.v, o.a ? o.a.name : 'Garrison only (400 pts)', garrison ? o.v === 'garrison' : D && o.a && o.a.id === D.id)).join('')}</select></label>` : ''}
     <div class="vs">${fighter('Attacker', A)}<div class="mid">vs</div>${fighter('Defender', D, B.owner)}</div>
     ${[A, D].filter(a => a && a.over).map(a => note(esc(a.over), true)).join('')}
     <h2 style="margin-top:12px;font-size:13px">Conditions${ruleLink('battles')}</h2><div style="color:var(--dim);font-size:14.5px">${(B.conditions.length ? B.conditions : ['No special conditions.']).map(esc).join('<br>')}</div>
     <div class="row" style="margin-top:8px"><button id="bPrio" ${S.stageName === 'Battle' || S.settings.override ? '' : 'disabled'}>Roll battle priority</button></div>
     ${B.done ? note('A result is already recorded here this turn: recording again adds another.', true) : ''}
     <h2 style="margin-top:12px;font-size:13px">Result</h2><div class="form">
+      ${fought(B.atkList, 'Attacking', A)}${fought(B.defList, 'Defending', D)}
       <label>Winner <select data-bf="win">${opt('atk', an, bForm.win !== 'def')}${opt('def', dn, bForm.win === 'def')}</select></label>
       <label>Loser was <select data-bf="out">${['Broken', 'Quartered', 'Destroyed'].map(o => opt(o, o, out === o)).join('')}</select></label>
       <small style="color:var(--dim)">${OUT_TIPS[out]}</small>
-      ${(() => { const L = (bForm.win === 'def') ? A : D, full = L && S.armies.find(x => x.id === L.id), lock = full && full.retreatTurn && S.turn <= full.retreatTurn + 2;
-        return lock ? `<label class="dim"><input type="checkbox" disabled> Loser called the retreat · ${esc(full.name)} retreated on turn ${full.retreatTurn} and can't again until turn ${full.retreatTurn + 3}</label>`
+      ${(() => { const Ls = (bForm.win === 'def') ? atkIn : defIn, full = Ls.map(L => S.armies.find(x => x.id === L.id)).find(f => f && f.retreatTurn && S.turn <= f.retreatTurn + 2);
+        return full ? `<label class="dim"><input type="checkbox" disabled> Loser called the retreat · ${esc(full.name)} retreated on turn ${full.retreatTurn} and can't again until turn ${full.retreatTurn + 3}</label>`
           : `<label><input type="checkbox" data-bf="retreat" ${bForm.retreat ? 'checked' : ''}> Loser called the retreat${bForm.retreat && out === 'Quartered' ? ' · counts as Broken, not Quartered' : ''}</label>`; })()}
       <small style="color:var(--dim)">The retreat must be called the moment the army breaks. Once called, that army can't retreat again for the next 2 campaign turns.</small>
-      <div class="row"><label>${esc(an)} casualties % <input data-bf="casA" type="number" min="0" max="100" value="${esc(pctA ?? '')}" placeholder="0" style="width:64px"></label></div>
-      <div class="row"><label>${esc(dn)} casualties % <input data-bf="casD" type="number" min="0" max="100" value="${esc(pctD ?? '')}" placeholder="0" style="width:64px"></label></div>
-      ${lostRow('lostA', A)}${lostRow('lostD', D)}
-      ${(A && A.units) || (D && D.units) ? '<small style="color:var(--dim)">Entering models lost fills in the casualty % for you.</small>' : ''}
+      <h2 style="margin-top:10px;font-size:13px">Casualties</h2>
+      ${[...atkIn, ...defIn].map(casRow).join('')}
+      ${[...atkIn, ...defIn].some(a => a.units) ? '<small style="color:var(--dim)">Entering models lost fills in the casualty % for you.</small>' : ''}
       <label>Heroic duel <select data-bf="duel">${opt('none', 'None', duel === 'none')}${opt('atk', (A && A.leader && A.leader !== 'Leader unknown' ? A.leader : 'Attacker\'s leader') + ' won', duel === 'atk')}${opt('def', (D && D.leader ? D.leader : 'Defender\'s leader') + ' won', duel === 'def')}</select></label>
       <small style="color:var(--dim)">${DUEL_TIPS[duel]} Casualties are the share of the army's points lost; Surgeons reduce them.</small>
       <button class="gold" id="bApply">Record the result</button></div></div>`;
@@ -1399,9 +1414,12 @@ function battlePanel() {
 function applyBattle() {
   const { A, D } = battleData();
   const lostPct = (a, v) => (a && a.units && v !== undefined && v !== '') ? JSON.parse(luaCall('appLost', a.id, v)).pct : null;
-  const casA = bForm.casA !== undefined && bForm.casA !== '' ? bForm.casA : lostPct(A, bForm.lostA) ?? 0;
-  const casD = bForm.casD !== undefined && bForm.casD !== '' ? bForm.casD : lostPct(D, bForm.lostD) ?? 0;
-  const r = act('bapply', { ...battleFields(), bWin: bForm.win || 'atk', bOut: bForm.out || 'Broken', bCasA: String(casA), bCasD: String(casD),
+  const { atkIn, defIn } = battleArmies();
+  const casOf = (a) => { const c = bForm['cas_' + a.id]; return Math.max(0, Math.min(100, Math.round(+(c !== undefined && c !== '' ? c : lostPct(a, bForm['lost_' + a.id]) ?? 0) || 0))); };
+  const cas = [...atkIn, ...defIn].map(a => a.id + ':' + casOf(a)).join(',');
+  const r = act('bapply', { ...battleFields(), bWin: bForm.win || 'atk', bOut: bForm.out || 'Broken',
+                            bCasA: String(A ? casOf(A) : 0), bCasD: String(D ? casOf(D) : 0), bCas: cas,
+                            bAtkAll: atkIn.map(a => a.id).join(','), bDefAll: defIn.map(a => a.id).join(','),
                             bDuel: bForm.duel || 'none', bRetreat: bForm.retreat ? 'True' : 'False' });
   if (r.ok) { battleOpen = null; bForm = {}; }
   renderLeft();

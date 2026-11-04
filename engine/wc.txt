@@ -205,7 +205,7 @@ end
 -- Log a line that names armies: with hidden information on, each side gets its own wording.
 -- tpl uses {1}, {2}, ... for the armies in refs.
 function clogFor(tpl, refs, cat, onlySide)
-  local function fill(viewer) return capSentences((string.gsub(tpl, "{(%d)}", function(k) return aname(refs[tonumber(k)], viewer) end))) end
+  local function fill(viewer) return capSentences((string.gsub(tpl, "{(%d+)}", function(k) return aname(refs[tonumber(k)], viewer) end))) end
   if not S.settings.hidden then clog(fill(nil), onlySide, cat); return end
   for _, sd in ipairs(SIDES) do
     if not onlySide or onlySide == sd then clog(fill(sd), sd, cat) end
@@ -1575,6 +1575,9 @@ end
 
 -- p: terr, atk, def (army id or "garrison"), winner ("atk"/"def"), outcome ("Broken"/"Quartered"/"Destroyed"),
 --    casA, casD (percent), duel ("none"/"atk"/"def")
+-- A battle may have several armies a side (reinforcements, sieges). p.atk / p.def are the lead armies; p.atkAll and
+-- p.defAll list every army that fought ("12,15"); p.cas gives each army's casualty % ("12:20,15:5"). The losing side
+-- shares one outcome; each army takes its own casualties, loses its own supplies and retreats on its own.
 function applyBattle(p)
   local ok = stageOk("Battle"); if ok ~= true then return ok end
   local n = tonumber(p.terr)
@@ -1585,42 +1588,73 @@ function applyBattle(p)
   if p.def ~= "garrison" and not D then return "Choose the defending army (or the garrison)." end
   if D and D.side == A.side then return "The two armies must be on different sides." end
   if p.winner ~= "atk" and p.winner ~= "def" then return "Choose who won." end
-  pcall(battleCancels, A, D)   -- the fight interrupts whatever they were doing here
-  pcall(eventAfterBattle, A, D)
-  local outcome = p.outcome or "Broken"
-  -- a loser that called the retreat counts as Broken rather than Quartered (it's still destroyed if it was)
-  local calledRetreat = p.retreat and outcome ~= "Destroyed"
-  local W, Lz = (p.winner == "atk") and A or D, (p.winner == "atk") and D or A
-  -- an army that has called the retreat can't do so again for the next 2 campaign turns
-  if calledRetreat and Lz and not S.settings.override and retreatLocked(Lz) then
-    return Lz.name .. " called the retreat on turn " .. Lz.retreatTurn .. " and can't do so again until turn " .. (Lz.retreatTurn + RETREAT_LOCK + 1) .. "."
-  end
-  if calledRetreat then outcome = "Broken" end
-  if calledRetreat and Lz then Lz.retreatTurn = S.turn end
-  -- both sides saw each other's army on the table
-  if D then
-    A.seenLeader[D.side] = true; A.seenUnits[D.side] = true
-    D.seenLeader[A.side] = true; D.seenUnits[A.side] = true
-  end
-  local refs = { A, D }
-  local function R(a) return (a == A) and "{1}" or ((a == D and D) and "{2}" or "the garrison") end
-  local summary = { "Battle at " .. tname(n) .. ": {1} vs " .. (D and "{2}" or "the garrison") .. ". " ..
-                    (W and R(W) or "The garrison") .. " won; the loser " .. (calledRetreat and "called the retreat and counts as Broken." or ("was " .. outcome .. ".")) }
-  -- casualties
-  for _, pair in ipairs({ { A, tonumber(p.casA) or 0 }, { D, tonumber(p.casD) or 0 } }) do
-    local a, cas = pair[1], pair[2]
-    if a then
-      local sg = surgeonFor(a)
-      if sg then
-        local r = d6(a.side, "Surgeon")
-        local red = (r >= 5) and 10 or ((r >= 3) and 5 or 0)
-        cas = math.max(0, cas - red)
-        table.insert(summary, { side = a.side, text = R(a) .. "'s Surgeon rolled " .. r .. ": casualties -" .. red .. "% (now " .. cas .. "%)." })
-      end
-      local tier = tierOf(cas)
-      a.damage = math.min(75, (a.damage or 0) + tier)
-      if tier > 0 then table.insert(summary, R(a) .. " is now at -" .. a.damage .. "%.") end
+  -- every army on each side, lead first
+  local function listOf(lead, ids, side)
+    local out, seen = {}, {}
+    if lead then out[1] = lead; seen[lead.id] = true end
+    for id in string.gmatch(tostring(ids or ""), "%d+") do
+      local x = armyById(tonumber(id))
+      if x and not seen[x.id] and x.side == side then out[#out + 1] = x; seen[x.id] = true end
     end
+    return out
+  end
+  local AS = listOf(A, p.atkAll, A.side)
+  local DS = listOf(D, p.defAll, D and D.side or OTHER[A.side])
+  local cas = {}
+  for id, v in string.gmatch(tostring(p.cas or ""), "(%d+):(%d+)") do cas[tonumber(id)] = tonumber(v) end
+  if cas[A.id] == nil then cas[A.id] = tonumber(p.casA) or 0 end
+  if D and cas[D.id] == nil then cas[D.id] = tonumber(p.casD) or 0 end
+  local outcome = p.outcome or "Broken"
+  local calledRetreat = p.retreat and outcome ~= "Destroyed"
+  local atkWon = p.winner == "atk"
+  local WS_ = atkWon and AS or DS          -- the winning armies (empty when the garrison alone won)
+  local LS_ = atkWon and DS or AS          -- the losing armies (empty when the garrison alone lost)
+  local W, Lz = WS_[1], LS_[1]
+  if calledRetreat and not S.settings.override then
+    for _, x in ipairs(LS_) do
+      if retreatLocked(x) then return x.name .. " called the retreat on turn " .. x.retreatTurn .. " and can't do so again until turn " .. (x.retreatTurn + RETREAT_LOCK + 1) .. "." end
+    end
+  end
+  for _, x in ipairs(AS) do pcall(battleCancels, x) end
+  for _, x in ipairs(DS) do pcall(battleCancels, x) end
+  pcall(function() local up = table.unpack or unpack; eventAfterBattle(up(AS)); eventAfterBattle(up(DS)) end)
+  if calledRetreat then outcome = "Broken" end
+  if calledRetreat then for _, x in ipairs(LS_) do x.retreatTurn = S.turn end end
+  -- both sides saw each other's armies on the table
+  for _, x in ipairs(AS) do for _, y in ipairs(DS) do
+    x.seenLeader[y.side] = true; x.seenUnits[y.side] = true; y.seenLeader[x.side] = true; y.seenUnits[x.side] = true
+  end end
+  -- names in the report: {k} is replaced by each viewer's name for that army
+  local refs, idx = {}, {}
+  for _, x in ipairs(AS) do refs[#refs + 1] = x; idx[x] = #refs end
+  for _, x in ipairs(DS) do refs[#refs + 1] = x; idx[x] = #refs end
+  local function R(a) return a and idx[a] and ("{" .. idx[a] .. "}") or "the garrison" end
+  local function group(list, fallback)
+    if #list == 0 then return fallback end
+    local parts = {}
+    for _, x in ipairs(list) do parts[#parts + 1] = R(x) end
+    if #parts == 1 then return parts[1] end
+    return table.concat(parts, ", ", 1, #parts - 1) .. " and " .. parts[#parts]
+  end
+  local aNames, dNames = group(AS, "the attackers"), group(DS, "the garrison")
+  local winNames = atkWon and aNames or dNames
+  local summary = { "Battle at " .. tname(n) .. ": " .. aNames .. " vs " .. dNames .. ". " ..
+                    winNames .. " won; the " .. ((#LS_ > 1) and "losers " or "loser ") ..
+                    (calledRetreat and "called the retreat and count" .. ((#LS_ > 1) and "" or "s") .. " as Broken." or (((#LS_ > 1) and "were " or "was ") .. outcome .. ".")) }
+  -- casualties, army by army
+  for _, x in ipairs(refs) do
+    local c = cas[x.id] or 0
+    local sg = surgeonFor(x)
+    if sg then
+      local r = d6(x.side, "Surgeon")
+      local red = (r >= 5) and 10 or ((r >= 3) and 5 or 0)
+      c = math.max(0, c - red)
+      table.insert(summary, { side = x.side, text = R(x) .. "'s Surgeon rolled " .. r .. ": casualties -" .. red .. "% (now " .. c .. "%)." })
+    end
+    cas[x.id] = c
+    local tier = tierOf(c)
+    x.damage = math.min(75, (x.damage or 0) + tier)
+    if tier > 0 then table.insert(summary, R(x) .. " is now at -" .. x.damage .. "%.") end
   end
   -- what the battle does to a conquest under way here (judged as it stood when the battle was fought)
   local terr = S.terr[n]
@@ -1628,45 +1662,57 @@ function applyBattle(p)
   local WS = W and W.side or terr.owner                 -- the garrison wins for the territory's owner
   local LS = Lz and Lz.side or nil
   local doubleDrop = cq and LS and cq.by == LS and terr.owner == WS
-  -- loot
-  if Lz then
-    local carried = Lz.carried or 0
-    local lost, gain
+  -- the winners share what they capture, the lead army first
+  local function capture(amount)
+    local got = 0
+    for _, x in ipairs(WS_) do
+      if amount - got <= 0 then break end
+      local room = math.max(0, x.size - (x.carried or 0))
+      local take = math.min(room, amount - got)
+      if take > 0 then x.carried = (x.carried or 0) + take; got = got + take; table.insert(summary, R(x) .. " captured " .. take .. " RP.") end
+    end
+    return got
+  end
+  -- loot and retreat, loser by loser
+  for _, x in ipairs(LS_) do
+    local carried = x.carried or 0
+    local lost
     if outcome == "Destroyed" then lost = carried
     elseif outcome == "Quartered" then lost = math.floor(carried * 0.75)
     else lost = math.floor(carried * 0.5) end
     if doubleDrop and outcome ~= "Destroyed" then
       lost = math.min(carried, lost * 2)
-      table.insert(summary, R(Lz) .. " was beaten while conquering " .. WS .. " land and drops twice the supplies.")
+      table.insert(summary, R(x) .. " was beaten while conquering " .. WS .. " land and drops twice the supplies.")
     end
-    gain = math.floor((outcome == "Destroyed" and carried or lost) / 2)
-    Lz.carried = carried - lost
-    if W and gain > 0 then
-      local room = W.size - (W.carried or 0)
-      W.carried = (W.carried or 0) + math.min(gain, room)
-      table.insert(summary, R(W) .. " captured " .. math.min(gain, room) .. " RP.")
-    end
-    if lost > 0 then table.insert(summary, R(Lz) .. " lost " .. lost .. " RP of supplies.") end
-    Lz.result = outcome
+    local gain = math.floor((outcome == "Destroyed" and carried or lost) / 2)
+    x.carried = carried - lost
+    if lost > 0 then table.insert(summary, R(x) .. " lost " .. lost .. " RP of supplies.") end
+    if gain > 0 then capture(gain) end
+    x.result = outcome
+  end
+  for _, x in ipairs(LS_) do
     if outcome == "Destroyed" then
-      table.insert(summary, R(Lz) .. " was destroyed.")
-      removeArmy(Lz)
+      table.insert(summary, R(x) .. " was destroyed.")
+      removeArmy(x)
     else
-      Lz.needsRetreat = true
-      table.insert(summary, R(Lz) .. " must retreat in the Retreat stage.")
+      x.needsRetreat = true
+      table.insert(summary, R(x) .. " must retreat in the Retreat stage.")
     end
   end
-  if W then W.result = nil end
+  for _, x in ipairs(WS_) do x.result = nil end
   -- a win in enemy territory that the winner isn't conquering: it pillages the territory at once, of all its RP
   if W and terr.owner == OTHER[W.side] and not (cq and cq.by == W.side) then
     local take = terr.stock or 0
-    local room = math.max(0, W.size - (W.carried or 0))
-    local got = math.min(take, room)
     terr.stock = 0
-    W.carried = (W.carried or 0) + got
+    local got = 0
+    for _, x in ipairs(WS_) do
+      local room = math.max(0, x.size - (x.carried or 0))
+      local t = math.min(room, take - got)
+      if t > 0 then x.carried = (x.carried or 0) + t; got = got + t end
+    end
     terr.noIncome = math.max(terr.noIncome or 0, 1)
     terr.noIncomeBy = { k = "pillage", s = W.side }
-    table.insert(summary, R(W) .. " pillaged " .. tname(n) .. " after the battle: " .. take .. " RP taken from its stores" ..
+    table.insert(summary, winNames .. " pillaged " .. tname(n) .. " after the battle: " .. take .. " RP taken from its stores" ..
                           ((got < take) and (" (" .. got .. " carried off, the rest destroyed)") or "") .. ". It produces no supplies next turn.")
     pcall(function()   -- shown on the Chronicle map like any other pillage
       if backfillActEvents then backfillActEvents() end
@@ -1677,7 +1723,7 @@ function applyBattle(p)
   -- the winner presses on
   if cq and terr.conq == cq and LS then
     if terr.owner == "Neutral" and W then
-      table.insert(summary, R(W) .. " won the contest for " .. tname(n) .. " and takes it at once.")
+      table.insert(summary, winNames .. " won the contest for " .. tname(n) .. " and take" .. ((#WS_ > 1) and "" or "s") .. " it at once.")
       setOwner(n, W.side, "conquered")
     elseif cq.by == WS and terr.owner == LS then
       cq.cut = (cq.cut or 0) + 1
@@ -1685,7 +1731,7 @@ function applyBattle(p)
       table.insert(summary, WS .. "'s conquest of " .. tname(n) .. " now takes 1 turn less (" .. (cq.prog or 0) .. "/" .. cq.need .. ").")
     end
   end
-  -- duel
+  -- duel: the lead armies' Leaders
   if p.duel == "atk" or p.duel == "def" then
     local loser = (p.duel == "atk") and D or A
     if loser and armyById(loser.id) then
@@ -1693,25 +1739,38 @@ function applyBattle(p)
       table.insert(summary, "Heroic Duel: " .. R(loser) .. "'s Leader lost and is absent until the end of next turn.")
     end
   end
-  for _, s in ipairs(summary) do
-    if type(s) == "table" then clogFor(s.text, refs, nil, s.side) else clogFor(s, refs) end
+  for _, s2 in ipairs(summary) do
+    if type(s2) == "table" then clogFor(s2.text, refs, nil, s2.side) else clogFor(s2, refs) end
+  end
+  local function fill(text, viewer)
+    return (string.gsub(text, "{(%d+)}", function(k) return aname(refs[tonumber(k)], viewer) end))
   end
   local function fillFor(viewer)
     local parts = {}
-    for _, s in ipairs(summary) do
-      if type(s) ~= "table" then table.insert(parts, s)
-      elseif not viewer or viewer == s.side then table.insert(parts, s.text) end
+    for _, s2 in ipairs(summary) do
+      if type(s2) ~= "table" then table.insert(parts, s2)
+      elseif not viewer or viewer == s2.side then table.insert(parts, s2.text) end
     end
-    return capSentences((string.gsub(table.concat(parts, " "), "{(%d)}", function(k) return aname(refs[tonumber(k)], viewer) end)))
+    return capSentences(fill(table.concat(parts, " "), viewer))
   end
+  local function avg(list, fb)
+    if #list == 0 then return fb end
+    local t, w = 0, 0
+    for _, x in ipairs(list) do t = t + (cas[x.id] or 0) * x.size; w = w + x.size end
+    return math.floor(t / w + 0.5)
+  end
+  local function ids(list) local o = {} for _, x in ipairs(list) do o[#o + 1] = x.id end return o end
+  local function sizeOf(list, fb) local t = 0 for _, x in ipairs(list) do t = t + x.size end return (#list > 0) and t or fb end
+  local casMap = {} for _, x in ipairs(refs) do casMap[tostring(x.id)] = cas[x.id] or 0 end
   table.insert(S.battles, { t = S.turn, n = n, text = fillFor(nil), tGood = fillFor("Good"), tEvil = fillFor("Evil"),
-                            win = W and W.side or (D == nil and S.terr[n].owner) or nil,
+                            win = W and W.side or (#DS == 0 and S.terr[n].owner) or WS,
                             atkSide = A.side, defSide = D and D.side or S.terr[n].owner, outcome = outcome,
-                            atkId = A.id, defId = D and D.id or nil, atkSize = A.size, defSize = D and D.size or 400,
-                            casA = tonumber(p.casA) or 0, casD = tonumber(p.casD) or 0,
-                            names = { All = { A.name, D and D.name or "the garrison" },
-                                      Good = { aname(A, "Good"), D and aname(D, "Good") or "the garrison" },
-                                      Evil = { aname(A, "Evil"), D and aname(D, "Evil") or "the garrison" } } })
+                            atkId = A.id, defId = D and D.id or nil, atkIds = ids(AS), defIds = ids(DS), cas = casMap,
+                            atkSize = sizeOf(AS, A.size), defSize = sizeOf(DS, 400),
+                            casA = avg(AS, 0), casD = avg(DS, 0),
+                            names = { All = { fill(aNames, nil), fill(dNames, nil) },
+                                      Good = { fill(aNames, "Good"), fill(dNames, "Good") },
+                                      Evil = { fill(aNames, "Evil"), fill(dNames, "Evil") } } })
   while #S.battles > 200 do table.remove(S.battles, 1) end
   return true
 end
@@ -11278,7 +11337,7 @@ function uiRun(player, arg)
     r = applyBattle({ terr = numOf(f.r_bTerr), atk = idOf(f.r_bAtk),
                       def = (string.find(f.r_bDef or "", "Garrison", 1, true) and "garrison") or idOf(f.r_bDef),
                       winner = f.bWin, outcome = f.bOut or "Broken", casA = f.bCasA, casD = f.bCasD, duel = f.bDuel or "none",
-                      retreat = f.bRetreat == "True" })
+                      retreat = f.bRetreat == "True", atkAll = f.bAtkAll, defAll = f.bDefAll, cas = f.bCas })
     say(pk, r, "Battle recorded. Losers retreat in the Retreat stage.")
     if r == true then f.bCasA, f.bCasD, f.bWin, f.bDuel, f.r_bLostA, f.r_bLostD, f.bRetreat = nil, nil, nil, nil, nil, nil, nil; u.bopen = nil end
   elseif a == "xfer" then
