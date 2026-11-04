@@ -579,7 +579,7 @@ function publicSnapshot()
   end
   for _, x in ipairs(S.armies) do
     table.insert(a, { id = x.id, s = x.side, l = x.loc, nm = x.name, sz = x.size, ld = x.leader, r = (x.status == "building") and 1 or nil,
-                      no = x.no, rv = armyRevealed(x) and 1 or nil,
+                      no = x.no, rv = armyRevealed(x) and 1 or nil, fg = (x.figure and x.figure ~= "") and x.figure or nil,
                       c = x.carried or 0, oos = outOfSupplies(x) and 1 or nil, m = x.merc and 1 or nil,
                       up = (x.status ~= "building" and not inFriendlyLand(x)) and armyUpkeep(x) or nil,
                       d = ((x.damage or 0) > 0) and x.damage or nil })
@@ -1801,10 +1801,18 @@ function applyBattle(p)
   local function ids(list) local o = {} for _, x in ipairs(list) do o[#o + 1] = x.id end return o end
   local function sizeOf(list, fb) local t = 0 for _, x in ipairs(list) do t = t + x.size end return (#list > 0) and t or fb end
   local casMap = {} for _, x in ipairs(refs) do casMap[tostring(x.id)] = cas[x.id] or 0 end
+  local fought = {}
+  for _, x in ipairs(refs) do
+    local won = false
+    for _, y in ipairs(WS_) do if y == x then won = true end end
+    local fate = won and "won" or (retOf(x) and "Retreated" or outOf(x))
+    fought[#fought + 1] = { id = x.id, s = x.side, nm = x.name, sz = x.size, cas = cas[x.id] or 0, fate = fate,
+                            atk = idx[x] <= #AS and true or false, fg = (x.figure and x.figure ~= "") and x.figure or nil }
+  end
   table.insert(S.battles, { t = S.turn, n = n, text = fillFor(nil), tGood = fillFor("Good"), tEvil = fillFor("Evil"),
                             win = W and W.side or (#DS == 0 and S.terr[n].owner) or WS,
                             atkSide = A.side, defSide = D and D.side or S.terr[n].owner, outcome = outcome,
-                            atkId = A.id, defId = D and D.id or nil, atkIds = ids(AS), defIds = ids(DS), cas = casMap,
+                            atkId = A.id, defId = D and D.id or nil, atkIds = ids(AS), defIds = ids(DS), cas = casMap, armies = fought, garrison = (D == nil or (terr.b.fort and terr.owner ~= "Neutral")) and true or nil,
                             atkSize = sizeOf(AS, A.size), defSize = sizeOf(DS, 400),
                             casA = avg(AS, 0), casD = avg(DS, 0),
                             names = { All = { fill(aNames, nil), fill(dNames, nil) },
@@ -9038,7 +9046,7 @@ end
 -- Public, compact copy of the campaign for the web page (no hidden information when hidden info is on).
 function webExport()
   local hidden = S.settings.hidden and true or false
-  local out = { v = 1, theatre = S.settings.theatre or "Eriador", turn = S.turn, stage = stageName(), started = S.started and true or false,
+  local out = { v = 2, pointCap = { base = POINT_CAP_BASE, city = POINT_CAP_CITY }, theatre = S.settings.theatre or "Eriador", turn = S.turn, stage = stageName(), started = S.started and true or false,
                 hidden = hidden, caps = { Good = S.settings.capGood, Evil = S.settings.capEvil }, winner = S.winner,
                 terr = {}, hist = {}, battles = {}, reports = S.reports or {}, armies = {} }
   pcall(function() out.exported = os.date("%d %b %Y %H:%M") end)
@@ -9065,14 +9073,28 @@ function webExport()
       -- armies that fight see each other's leaders, so after a battle both are known by name
       local an, dn = nm and nm[1] or b.atkSide or "?", nm and nm[2] or b.defSide or "?"
       text = "Battle at " .. tname(b.n) .. ": " .. an .. " (" .. (b.atkSide or "?") .. ") attacked " .. dn .. " (" .. (b.defSide or "?") .. "). " ..
-             (b.win and (b.win .. " won") or "Result recorded") .. (b.outcome and ("; the loser was " .. b.outcome) or "") .. "."
+             (b.win and (b.win .. " won") or "Result recorded") .. "."
+      local fates = {}
+      for _, x in ipairs(b.armies or {}) do
+        if x.fate ~= "won" then fates[#fates + 1] = x.nm .. ((x.fate == "Retreated") and " called the retreat" or (" was " .. x.fate)) end
+      end
+      if #fates > 0 then text = text .. " " .. table.concat(fates, "; ") .. "."
+      elseif b.outcome then text = text .. " The loser was " .. b.outcome .. "." end
+    end
+    local fought = {}
+    for _, x in ipairs(b.armies or {}) do
+      fought[#fought + 1] = { id = x.id, s = x.s, nm = x.nm, sz = x.sz, cas = x.cas, fate = x.fate, atk = x.atk, fg = x.fg }
     end
     local e = { t = b.t, n = b.n, win = b.win, outcome = b.outcome, atkSide = b.atkSide, defSide = b.defSide, text = text,
-                atkSize = b.atkSize, defSize = b.defSize, atkId = b.atkId, defId = b.defId, names = nm }
+                atkSize = b.atkSize, defSize = b.defSize, atkId = b.atkId, defId = b.defId, names = nm,
+                armies = (#fought > 0) and fought or nil, garrison = b.garrison }
     table.insert(out.battles, e)
   end
   -- per-turn snapshots plus the live state as the last frame
   out.snaps = {}
+  -- turns recorded before figures were kept: an army's figure as it is now
+  local figNow = {}
+  for _, a in ipairs(S.armies) do if a.figure and a.figure ~= "" then figNow[a.id] = a.figure end end
   local function cleanSnap(sn)
     local c = { t = sn.t, st = sn.st, o = sn.o, b = sn.b, c = sn.c, a = {}, w = {}, x = sn.x }
     if not c.x then pcall(function() c.x = pastActs(sn.t) end) end   -- turns recorded before actions were kept
@@ -9094,8 +9116,8 @@ function webExport()
         -- the public only knows an army by its number until its leader is revealed
         local no = x.no or (S.armyNoById and S.armyNoById[tostring(x.id)])
         local pub = x.rv and x.nm or (x.s .. " Army " .. tostring(no or "?"))
-        table.insert(c.a, { id = x.id, s = x.s, l = x.l, r = x.r, d = x.d, m = x.m, nm = pub, ld = x.rv and x.ld or nil })
-      else table.insert(c.a, { id = x.id, s = x.s, l = x.l, nm = x.nm, sz = x.sz, ld = x.ld, r = x.r, d = x.d, c = x.c, oos = x.oos, m = x.m, up = x.up }) end
+        table.insert(c.a, { id = x.id, s = x.s, l = x.l, r = x.r, d = x.d, m = x.m, nm = pub, ld = x.rv and x.ld or nil, fg = x.rv and (x.fg or figNow[x.id]) or nil })
+      else table.insert(c.a, { id = x.id, s = x.s, l = x.l, nm = x.nm, sz = x.sz, ld = x.ld, r = x.r, d = x.d, c = x.c, oos = x.oos, m = x.m, up = x.up, fg = x.fg or figNow[x.id] }) end
     end
     return c
   end

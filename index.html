@@ -209,6 +209,8 @@ h3 button.link{font-family:var(--display);font-size:12px;letter-spacing:.08em;te
 .cas-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:6px 8px;margin:4px 0;border-left:3px solid var(--line);background:#00000022;border-radius:0}
 .cas-row.Good{border-left-color:var(--good)}.cas-row.Evil{border-left-color:var(--evil)}.cas-row b{flex-basis:100%;font-size:14px}
 .fought{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;margin:2px 0}.fought small{flex-basis:100%;color:var(--dim)}
+a.btn-link{display:inline-block;font-family:var(--display);font-size:12.5px;letter-spacing:.04em;color:#1c150f;background:#c9a24f;border:1px solid #8a6a2e;padding:7px 12px;border-radius:6px;text-decoration:none}
+a.btn-link:hover{filter:brightness(1.08)}
 .net-chip{display:flex;align-items:center;gap:6px;font-family:var(--display);font-size:11px;letter-spacing:.05em;color:var(--dim2);padding:4px 9px;border:1px solid var(--line);border-radius:6px;background:#1d150dcc;cursor:pointer;white-space:nowrap}
 .net-chip .dot{width:8px;height:8px;border-radius:50%;background:#6b5a44;display:inline-block}.net-chip .dot.on{background:#6fd08a;box-shadow:0 0 6px #6fd08a}
 .net-chip.err{border-color:#a0402c;color:#f0a58e}.net-chip.join{cursor:default;color:var(--gold)}.net-chip.join button{padding:3px 8px;font-size:11px}
@@ -456,7 +458,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=bef5f1b980').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=d0f84e776f').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -470,6 +472,7 @@ function persist() {
   const s = luaCall('appSave');
   try { localStorage.setItem(NET.role === 'guest' ? 'eriador.online' : SAVE_KEY, s); } catch (e) { /* private window or storage full: the campaign still runs */ }
   if (NET.on && !NET.applying) netQueue(s);
+  if (window.__chronSoon) window.__chronSoon();
 }
 const DICE_ACTIONS = new Set(['prio', 'rule', 'gmove', 'gact', 'retreat', 'bprio', 'bapply', 'evtroll']);
 function act(arg, fields, quiet, opts = {}) {
@@ -2304,6 +2307,27 @@ function makeBackup() {
     for (const b of backups().slice(5)) localStorage.removeItem(BK + b.turn);
   } catch (e) { /* storage full: the campaign itself is still kept */ }
 }
+// ---- the Chronicle: the War Council's web code, with the portrait of every leader the code names
+function b64ToText(b) { const bin = atob(b); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new TextDecoder().decode(u); }
+function textToB64(t) { const u = new TextEncoder().encode(t); let bin = ''; for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(bin); }
+function chronicleCode() {
+  const code = luaCall('appWeb');
+  try {
+    const d = JSON.parse(b64ToText(code.slice(7)));
+    const ids = new Set();
+    for (const sn of d.snaps || []) for (const a of sn.a || []) if (a.fg) ids.add(a.fg);
+    for (const b of d.battles || []) for (const x of b.armies || []) if (x.fg) ids.add(x.fg);
+    d.figs = {};
+    for (const id of ids) { const l = LEADER_BY.get(id); if (l && l.thumb) d.figs[id] = { src: l.thumb, name: l.name }; }
+    return 'WCWEB2:' + textToB64(JSON.stringify(d));
+  } catch (e) { console.error(e); return code; }
+}
+// the site's own Chronicle reads this browser's campaign: kept current while it's in use
+let chronicleOn = false, chronTimer = null;
+window.__chronSoon = () => chronicleSoon();
+try { chronicleOn = !!localStorage.getItem('eriador.chronicleOn'); } catch (e) {}
+function writeChronicle() { try { localStorage.setItem('eriador.chronicle', chronicleCode()); } catch (e) { /* storage full: the Chronicle keeps its last copy */ } }
+function chronicleSoon() { if (!chronicleOn) return; clearTimeout(chronTimer); chronTimer = setTimeout(writeChronicle, 2500); }
 // Files leave the page through the viewer's own save prompt (the downloads capability); outside claude.ai, a plain link.
 let downloadsNS; const dlReady = (async () => { try { downloadsNS = window.claude && window.claude.use ? await window.claude.use('downloads') : null; } catch (e) { downloadsNS = null; } })();
 async function download(name, text, type = 'application/json') {
@@ -2410,11 +2434,15 @@ function renderSettings() {
   } else if (setTab === 'Online') h += onlineTab();
   else if (setTab === 'Reports') h += reportsTab();
   else if (setTab === 'Chronicle') {
-    h += `<p class="hint">The code for the campaign web page: copy it and paste it into the page's Update box. ${st.hidden ? 'Hidden information is on, so only public information is included.' : 'Hidden information is off, so armies and stockpiles are included.'}</p>
-      <textarea id="webCode" readonly rows="6" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12px;background:#f3e7c9;color:#2a1c10;border-radius:6px;padding:8px">${esc(luaCall('appWeb'))}</textarea>
+    h += `<h3>The Chronicle</h3><p class="hint">The story of the campaign, turn by turn: the map, battles, armies and their leaders. This copy follows the campaign in this browser as you play.</p>
+      <div class="row"><a class="btn-link gold" id="openChron" href="chronicle.html" target="_blank" rel="noopener">Open the Chronicle</a></div>
+      <h3>The shared Chronicle page</h3>
+      <p class="hint">For the Chronicle page you share with others: copy this code and paste it into that page's Update box. ${st.hidden ? 'Hidden information is on, so only public information is included.' : 'Hidden information is off, so armies and stockpiles are included.'}</p>
+      <textarea id="webCode" readonly rows="6" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12px;background:#f3e7c9;color:#2a1c10;border-radius:6px;padding:8px">${esc(chronicleCode())}</textarea>
       <div class="row" style="margin-top:8px"><button class="gold" data-c="copyweb">Copy the code</button><button data-c="dlweb">Download it</button></div>`;
   }
   const el = $('setBody'); el.innerHTML = h; wireOnline(el);
+  const oc = $('openChron'); if (oc) oc.onclick = () => { chronicleOn = true; lsSet('eriador.chronicleOn', '1'); writeChronicle(); };
   el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => {
     quality = b.dataset.q; try { localStorage.setItem('eriador.quality', quality); } catch (e) {}
     renderer.setPixelRatio(Math.min(devicePixelRatio, QUALITY[quality].pr)); renderer.setSize(innerWidth, innerHeight);
@@ -3873,7 +3901,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=bef5f1b980').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=d0f84e776f').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4081,7 +4109,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=bef5f1b980').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=d0f84e776f').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4256,7 +4284,7 @@ function guestFlush() {
 async function netApply(s, fx, full) {
   const before = netBefore(), prevTurn = S && S.turn, prevStage = S && S.stage;
   NET.applying = true;
-  try { luaCall('appLoad', s); refresh(); lsSet(NET.role === 'host' ? SAVE_KEY : 'eriador.online', s); }
+  try { luaCall('appLoad', s); refresh(); lsSet(NET.role === 'host' ? SAVE_KEY : 'eriador.online', s); chronicleSoon(); }
   finally { NET.applying = false; }
   if (full) {
     spots.clear(); for (const o of things.values()) scene.remove(o); things.clear(); for (const k of [...LABELS.keys()]) removeLabel(k);
