@@ -656,7 +656,17 @@ function startOfTurn(firstTurn)
       if a.upLeft <= 0 then
         a.size = a.upTo
         a.upLeft, a.upTo = nil, nil
-        clog(a.side .. " army " .. a.name .. " upgraded to " .. a.size .. " points.", a.side, "armies")
+        -- the bigger list the player gave when ordering the upgrade takes over now
+        local nl = a.upList
+        if nl then
+          if nl.leader and nl.leader ~= "" then a.leader = nl.leader end
+          if nl.list and nl.list ~= "" then a.list = nl.list end
+          if nl.units then a.units = nl.units end
+          if nl.roster then a.roster = nl.roster end
+          a.seenUnits = {}
+          a.upList = nil
+        end
+        clog(a.side .. " army " .. a.name .. " upgraded to " .. a.size .. " points" .. (nl and ", with its new list" or "") .. ".", a.side, "armies")
       end
     end
   end
@@ -832,7 +842,8 @@ end
 function rollPriority()
   local ok = stageOk("Priority"); if ok ~= true then return ok end
   local g, e
-  repeat g, e = d6("Good", "Priority"), d6("Evil", "Priority") until g ~= e
+  -- a tie rolls again; while the dice are still being thrown by the players, one pair is asked for at a time
+  repeat g, e = d6("Good", "Priority"), d6("Evil", "Priority") until g ~= e or (DICE and DICE.short)
   S.prio = { Good = g, Evil = e, winner = (g > e) and "Good" or "Evil" }
   S.first = nil
   clog("Priority: Good " .. g .. ", Evil " .. e .. ". " .. S.prio.winner .. " chooses who acts first.")
@@ -1069,7 +1080,18 @@ function editArmy(a, f)
   return true
 end
 
-function upgradeArmy(a)
+-- The new list for an upgrade (from a pasted roster): kept until the upgrade finishes, then it replaces the army's list.
+function setUpgradeList(a, rr)
+  if not a then return "Choose an army." end
+  if not rr then return "Paste the army's new list first." end
+  local to = a.upTo
+  if not to then for i, s in ipairs(SIZES) do if s == a.size then to = SIZES[i + 1] end end end
+  if rr.points and to and rr.points > to then return "That list is " .. rr.points .. " pts: an upgraded " .. a.name .. " can field " .. to .. " pts." end
+  a.upList = { leader = rr.general, list = rr.list, units = string.sub(rr.summary or "", 1, 600), roster = rosterForArmy(rr) }
+  return true
+end
+
+function upgradeArmy(a, rr)
   local ok = stageOk("Building"); if ok ~= true then return ok end
   if a.upLeft then return a.name .. " is already upgrading." end
   local nextSize
@@ -1078,8 +1100,10 @@ function upgradeArmy(a)
   if armyPoints(a.side, a) + nextSize > armyCap(a.side) and not S.settings.override then
     return "Upgrading " .. a.name .. " to " .. nextSize .. " pts would take " .. a.side .. " over its " .. armyCap(a.side) .. " pt Point Cap (" .. armyPoints(a.side) .. " pts fielded)."
   end
+  if rr and rr.points and rr.points > nextSize then return "That list is " .. rr.points .. " pts: an upgraded " .. a.name .. " can field " .. nextSize .. " pts." end
   local r = payOrFail(a.side, a.loc, UPGRADE_COST, a); if r ~= true then return r end
   a.upLeft, a.upTo = UPGRADE_TURNS, nextSize
+  if rr then setUpgradeList(a, rr) end
   clog(a.side .. " is upgrading " .. a.name .. " to " .. nextSize .. " pts (" .. UPGRADE_COST .. " RP, " .. UPGRADE_TURNS .. " turn).", a.side)
   return true
 end
@@ -1575,7 +1599,7 @@ function rollBattlePriority(n, atk, def)
   local g, e
   repeat
     g, e = d6("Good", "Battle priority") + prio.Good, d6("Evil", "Battle priority") + prio.Evil
-  until g ~= e
+  until g ~= e or (DICE and DICE.short)
   local w = g > e and "Good" or "Evil"
   clog("Battle priority at " .. tname(n) .. ": Good " .. g .. ", Evil " .. e .. " (with modifiers). " .. w .. " has priority.")
   return true
@@ -11373,6 +11397,15 @@ function uiRun(player, arg)
   elseif a == "move" then r = moveArmy(armyById(p1), numOf(f.mDest), f.mMarch == "True"); say(pk, r, "Army moved."); if r == true then f.mMarch = nil end
   elseif a == "rep" then r = replenish(armyById(p1)); say(pk, r, "Replenishing.")
   elseif a == "up" then r = upgradeArmy(armyById(p1)); say(pk, r, "Upgrade started.")
+  elseif a == "uppaste" then   -- upgrade with the new, bigger list pasted (or, while upgrading, set that list)
+    local arm, rr = armyById(p1), u.paste and u.paste.r_pasteU
+    if not arm then say(pk, "Choose an army.")
+    elseif not rr then say(pk, "Paste the army's new list first.")
+    else
+      if arm.upLeft then r = setUpgradeList(arm, rr); say(pk, r, "New list set: it takes over when the upgrade finishes.")
+      else r = upgradeArmy(arm, rr); say(pk, r, "Upgrade started: the new list takes over when it finishes.") end
+      if r == true then u.paste.r_pasteU = nil end
+    end
   elseif a == "edit" then r = editArmy(armyById(p1), { leader = f.eLeader, list = f.eList, units = f.eUnits }); say(pk, r, "Army edited.")
   elseif a == "acancel" then
     if u.confirm == ("acancel:" .. p1) then r = cancelRaise(armyById(p1)); say(pk, r, "Recruitment cancelled and refunded."); if r == true then u.sel.army = nil end

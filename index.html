@@ -461,7 +461,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=4e900847ab').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=db52d45856').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -595,7 +595,9 @@ function playSound(k) { if (k && window.__sound) window.__sound(k); }
 let throwing = false;
 async function playerDice(arg, fields, quiet, opts) {
   if (throwing) { toast('The dice are still rolling: wait a moment.', 'err'); return; }
+  if (NET.on && NET.remoteRoll && Date.now() - NET.remoteRoll < 120000) { toast(`The ${OTHER_OF[NET.seat]} player is rolling dice right now: wait for them to finish.`, 'err'); return; }
   throwing = true;
+  if (NET.on) send({ t: 'dbusy' });
   try {
     const queue = [], by = S.settings.diceBy || {};
     for (let round = 0; round < 12; round++) {
@@ -624,17 +626,23 @@ async function playerDice(arg, fields, quiet, opts) {
     throwing = false;
     NET.diceShown = true;              // both tables have already seen these dice land
     try { act(arg, fields, quiet, { ...opts, queue }); } finally { NET.diceShown = false; }
-  } finally { throwing = false; $('throwBar').hidden = true; }
+  } finally { throwing = false; barStatus(null); if (NET.on) send({ t: 'dfree' }); }
 }
+let asking = 0;   // prompts to throw still waiting for their player
+function barStatus(html) { const bar = $('throwBar'); if (asking) return; if (html == null) bar.hidden = true; else { bar.innerHTML = html; bar.hidden = false; } }
+let askChain = Promise.resolve();
 function askThrow(side, n, why) {
-  return new Promise(res => {
+  asking++;
+  const turn = askChain.then(() => new Promise(res => {
     const bar = $('throwBar');
     bar.innerHTML = `<span class="pill ${side}">${side}</span> throw ${n} di${n === 1 ? 'e' : 'ce'} · ${esc(why || 'Roll')} <button class="gold" id="throwGo">Throw the dice</button><small>or press R</small>`;
     bar.hidden = false; insetUntil = Infinity;
-    const go = () => { removeEventListener('keydown', key); bar.hidden = true; res(); };
+    const go = () => { removeEventListener('keydown', key); asking = Math.max(0, asking - 1); bar.hidden = true; res(); };
     const key = (e) => { if ((e.key === 'r' || e.key === 'R') && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) go(); };
     $('throwGo').onclick = go; addEventListener('keydown', key);
-  });
+  }));
+  askChain = turn.catch(() => {});
+  return turn;
 }
 function throwDiceAsync(specs) { return new Promise(res => { throwDice(specs, null, res); }); }
 
@@ -1587,6 +1595,10 @@ function renderCard() {
     if (/wolf ?pack/i.test(F.aList || '')) rForm.aCav = true;
     renderCard();
   };
+  const up = el.querySelector('[data-uppaste]'); if (up) up.onclick = async () => {
+    const text = await listText(v('upPaste')); if (text == null) return;
+    const r = act('pasteread~r_pasteU', { r_pasteU: text }); if (r.ok) act('uppaste~' + up.dataset.uppaste);
+  };
   const ep = el.querySelector('[data-epaste]'); if (ep) ep.onclick = async () => {
     const text = await listText(v('eaPaste')); if (text == null) return;
     const r = act('pasteread~r_pasteA', { r_pasteA: text }); if (r.ok) act('pasteedit~' + ep.dataset.epaste);
@@ -1851,7 +1863,15 @@ function armyCard(a) {
   if (stg === 'Building' || S.settings.override) {
     h += `<h3>Muster</h3><div class="grid2">
       <button data-act="rep~${a.id}" ${a.damage > 0 && !a.replenishing ? '' : 'disabled'}>Replenish<small>${a.damage > 0 ? I.replenishCost + ' RP' : 'no losses'}</small></button>
-      <button data-act="up~${a.id}" ${a.size < 1000 && !a.upLeft ? '' : 'disabled'}>${a.size < 1000 ? `Upgrade to ${a.size + 200} pts` : 'At maximum size'}<small>${a.size < 1000 ? I.upgradeCost + ' RP' : ''}</small></button></div>`;
+      <button data-toggle="up" ${a.size < 1000 || a.upLeft ? '' : 'disabled'} class="${open.up ? 'on' : ''}">${a.upLeft ? `Upgrading to ${I.upTo} pts` : a.size < 1000 ? `Upgrade to ${a.size + 200} pts` : 'At maximum size'}<small>${a.upLeft ? 'new list' : a.size < 1000 ? I.upgradeCost + ' RP' : ''}</small></button></div>`;
+    if (open.up && (a.size < 1000 || a.upLeft)) {
+      const to = a.upLeft ? I.upTo : a.size + 200, nl = I.upList;
+      h += `<div class="form" style="margin-top:8px">` +
+        (a.upLeft ? note(`Upgrading to ${to} pts: it finishes at the start of next turn. ` + (nl ? `The new list (${esc(nl.list || 'list')}${nl.points ? ', ' + nl.points + ' pts' : ''}${nl.leader ? ', led by ' + esc(nl.leader) : ''}) takes over then. Paste another to change it.` : 'No new list yet: paste it here and it takes over when the upgrade finishes.'))
+          : note(`Paste the army's new ${to}-pt list (a List Builder share link or export). It takes over when the upgrade finishes.`)) +
+        `<textarea id="upPaste" rows="3" class="ta" placeholder="Paste the ${to}-pt list"></textarea>
+        <div class="row"><button class="gold" data-uppaste="${a.id}">${a.upLeft ? 'Set the new list' : `Upgrade with this list · ${I.upgradeCost} RP`}</button>${a.upLeft ? '' : `<button data-act="up~${a.id}">Upgrade without a new list</button>`}</div></div>`;
+    }
   }
   h += cardsBlock(a);
   h += `<h3>Army</h3><div class="row"><button data-toggle="edit">${open.edit ? 'Close' : 'Edit / roster'}</button>
@@ -4011,7 +4031,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=4e900847ab').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=db52d45856').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4219,7 +4239,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=4e900847ab').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=db52d45856').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4241,6 +4261,7 @@ const upFace = (q) => { let best = -2, idx = 0; NORMALS.forEach((n, i) => { cons
 let shown = [], replay = null, insetUntil = 0;
 // Throw dice; each spec is { side, value } - value is what the rules rolled (or null for a free throw).
 function throwDice(specs, label, done) {
+  if (replay && replay.done) finishThrow();   // one still rolling: it lands now, so whatever waits on it carries on
   specs = specs.slice(0, 8);
   for (const d of shown) scene.remove(d.m); shown = [];
   const { world, dieP } = simWorld();
@@ -4416,13 +4437,12 @@ function netRemoteThrow(side, n, why) {
   return new Promise((resolve) => {
     if (!isOpen()) { const v = Array.from({ length: n }, () => 1 + Math.floor(Math.random() * 6)); toast(`The ${side} player isn't connected, so the War Council threw for them.`, 'err'); resolve(v); return; }
     const id = Math.random().toString(36).slice(2);
-    const bar = $('throwBar');
-    bar.innerHTML = `<span class="pill ${side}">${side}</span> waiting for the ${side} player to throw ${n} di${n === 1 ? 'e' : 'ce'} · ${esc(why || 'Roll')}`;
-    bar.hidden = false; insetUntil = Infinity;
-    const fallback = setInterval(() => { if (!isOpen()) { clearInterval(fallback); diceWaits.delete(id); bar.hidden = true;
+    barStatus(`<span class="pill ${side}">${side}</span> Waiting for the ${side} player to throw ${n} di${n === 1 ? 'e' : 'ce'} on their computer · ${esc(why || 'Roll')}`);
+    insetUntil = Infinity;
+    const fallback = setInterval(() => { if (!isOpen()) { clearInterval(fallback); diceWaits.delete(id); barStatus(null);
       toast(`Lost the ${side} player, so the War Council threw for them.`, 'err'); resolve(Array.from({ length: n }, () => 1 + Math.floor(Math.random() * 6))); } }, 2000);
     diceWaits.set(id, async (vals) => {
-      clearInterval(fallback); bar.hidden = true;
+      clearInterval(fallback); barStatus(null);
       vals = (Array.isArray(vals) ? vals : []).slice(0, n).map(v => Math.max(1, Math.min(6, Math.round(+v) || 1)));
       while (vals.length < n) vals.push(1 + Math.floor(Math.random() * 6));
       await throwDiceAsync(vals.map(v => ({ side: DIE_INK[side] ? side : 'Neutral', value: v })));   // their throw lands here too
@@ -4433,7 +4453,7 @@ function netRemoteThrow(side, n, why) {
 }
 function netAnswerThrow(msg) {
   answerChain = answerChain.then(async () => {
-    const side = NET.seat || msg.side, n = Math.max(1, Math.min(20, +msg.n || 1));
+    const side = msg.side || NET.seat, n = Math.max(1, Math.min(20, +msg.n || 1));
     playSound('dice');
     await askThrow(side, n, (msg.why || 'Roll') + ' · the other player is waiting');
     const vals = await throwDiceAsync(Array.from({ length: n }, () => ({ side: DIE_INK[side] ? side : 'Neutral', value: null })));
@@ -4443,6 +4463,8 @@ function netAnswerThrow(msg) {
 }
 function onData(msg) {
   if (!msg || typeof msg !== 'object') return;
+  if (msg.t === 'dbusy') { NET.remoteRoll = Date.now(); return; }
+  if (msg.t === 'dfree') { NET.remoteRoll = 0; return; }
   if (msg.t === 'dreq') { netAnswerThrow(msg); return; }
   if (msg.t === 'dres') { const f = diceWaits.get(msg.id); if (f) { diceWaits.delete(msg.id); f(msg.vals); } return; }
   if (msg.t === 'dshow') {
