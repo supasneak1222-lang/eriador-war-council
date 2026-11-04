@@ -231,6 +231,7 @@ function appArmyInfo(id)
     rosterLine = r and rosterLine(r) or nil, rosterLines = r and r.lines or nil,
     over = (r and r.points and r.points > fieldable(a)) and (r.points .. " pt roster, but it can only field " .. fieldable(a) .. " pts right now.") or nil,
     cavalry = isCavalry(a) and true or false,
+    raiseRefund = (a.status == "building") and raiseCost(a) or nil,
   }
   return JSON.encode(out)
 end

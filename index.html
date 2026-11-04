@@ -456,7 +456,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=b2f4c9e036').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=354954b9da').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -534,15 +534,24 @@ async function playerDice(arg, fields, quiet, opts) {
       const groups = {};
       want.forEach((w, i) => { if (+w.sides !== 6) vals[i] = 1 + Math.floor(Math.random() * w.sides); else (groups[w.side] = groups[w.side] || []).push(i); });
       for (const [side, idx] of Object.entries(groups)) {
-        if (by[side] === 'player') await askThrow(side, idx.length, want[idx[0]].why);
-        const res = await throwDiceAsync(idx.map(() => ({ side: DIE_INK[side] ? side : 'Neutral', value: null })));
+        const why = want[idx[0]].why;
+        let res;
+        if (NET.on && side !== NET.seat && by[side] === 'player') {
+          // online: the other player throws their own side's dice, on their own table
+          res = await netRemoteThrow(side, idx.length, why);
+        } else {
+          if (by[side] === 'player') await askThrow(side, idx.length, why);
+          res = await throwDiceAsync(idx.map(() => ({ side: DIE_INK[side] ? side : 'Neutral', value: null })));
+          if (NET.on) send({ t: 'dshow', side, vals: res, why });     // the other table sees this throw land
+        }
         idx.forEach((i, k) => vals[i] = res[k]);
-        toast(`${side} threw ${res.join(', ')} · ${want[idx[0]].why}`, 'roll');
+        toast(`${side} threw ${res.join(', ')} · ${why}`, 'roll');
       }
       want.forEach((w, i) => queue.push({ sides: w.sides, value: vals[i] }));
     }
     throwing = false;
-    act(arg, fields, quiet, { ...opts, queue });
+    NET.diceShown = true;              // both tables have already seen these dice land
+    try { act(arg, fields, quiet, { ...opts, queue }); } finally { NET.diceShown = false; }
   } finally { throwing = false; $('throwBar').hidden = true; }
 }
 function askThrow(side, n, why) {
@@ -1744,7 +1753,13 @@ function armyCard(a) {
   const kn = [I.enemyKnows.leader && 'leader', I.enemyKnows.units && 'units'].filter(Boolean);
   if (kn.length) h += note(`The enemy has scouted this army's ${kn.join(' and ')}.`);
   if (S.settings.hidden) h += note(I.revealed ? 'Known to the enemy by name.' : `The enemy sees it as ${esc(I.publicName)}.`);
-  if (a.status === 'building') return h + cardsBlock(a);
+  if (a.status === 'building') {
+    if (a.side === acting && (stg === 'Building' || S.settings.override) && I.raiseRefund != null)
+      h += `<h3>Recruitment</h3><button data-act="acancel~${a.id}" title="Press twice to confirm. Building stage.">Cancel recruitment (refund ${I.raiseRefund} RP)</button>
+        ${note('Calls off raising this army: it is removed and all ' + I.raiseRefund + ' RP it cost go back to the stockpile it was raised in.')}`;
+    else if (a.side === acting) h += note('You can cancel this recruitment, with a full refund, in the Building stage.');
+    return h + cardsBlock(a);
+  }
   if (stg === 'Logistics') {
     if (!a.moved && !a.needsRetreat) h += note('Drag the model on the map to move it. Where it can reach glows while it is selected.');
     h += `<h3>Orders${ruleLink('actions')}</h3>`;
@@ -3858,7 +3873,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=b2f4c9e036').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=354954b9da').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4066,7 +4081,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=b2f4c9e036').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=354954b9da').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4206,7 +4221,7 @@ function netFx(r) {
   if (!r) return null;
   const a = String(NET.lastArg || '').split('~')[0], pub = PUBLIC_ROLLS.has(a);
   const fx = { ev: (r.ev || []).filter(e => e.ev === 'moved' || e.ev === 'routed' || (pub && e.ev === 'sound')).map(e => ({ ev: e.ev, kind: e.kind, id: e.id, path: e.path, key: e.key })),
-    rolls: pub ? (r.rolls || []).map(x => ({ s: x.s, v: x.v, n: x.n, w: x.w })) : [] };
+    rolls: pub && !NET.diceShown ? (r.rolls || []).map(x => ({ s: x.s, v: x.v, n: x.n, w: x.w })) : [] };
   return JSON.stringify(fx).length < 40000 ? fx : null;
 }
 const otherSide = () => OTHER_OF[NET.seat];
@@ -4249,8 +4264,47 @@ async function netApply(s, fx, full) {
   syncScene(); renderUI(); renderSettings(); netUI();
   if (before) afterAction(prevTurn, prevStage);
 }
+// --- dice across the two tables
+const diceWaits = new Map();
+let answerChain = Promise.resolve();
+function netRemoteThrow(side, n, why) {
+  return new Promise((resolve) => {
+    if (!isOpen()) { const v = Array.from({ length: n }, () => 1 + Math.floor(Math.random() * 6)); toast(`The ${side} player isn't connected, so the War Council threw for them.`, 'err'); resolve(v); return; }
+    const id = Math.random().toString(36).slice(2);
+    const bar = $('throwBar');
+    bar.innerHTML = `<span class="pill ${side}">${side}</span> waiting for the ${side} player to throw ${n} di${n === 1 ? 'e' : 'ce'} · ${esc(why || 'Roll')}`;
+    bar.hidden = false; insetUntil = Infinity;
+    const fallback = setInterval(() => { if (!isOpen()) { clearInterval(fallback); diceWaits.delete(id); bar.hidden = true;
+      toast(`Lost the ${side} player, so the War Council threw for them.`, 'err'); resolve(Array.from({ length: n }, () => 1 + Math.floor(Math.random() * 6))); } }, 2000);
+    diceWaits.set(id, async (vals) => {
+      clearInterval(fallback); bar.hidden = true;
+      vals = (Array.isArray(vals) ? vals : []).slice(0, n).map(v => Math.max(1, Math.min(6, Math.round(+v) || 1)));
+      while (vals.length < n) vals.push(1 + Math.floor(Math.random() * 6));
+      await throwDiceAsync(vals.map(v => ({ side: DIE_INK[side] ? side : 'Neutral', value: v })));   // their throw lands here too
+      resolve(vals);
+    });
+    send({ t: 'dreq', id, side, n, why });
+  });
+}
+function netAnswerThrow(msg) {
+  answerChain = answerChain.then(async () => {
+    const side = NET.seat || msg.side, n = Math.max(1, Math.min(20, +msg.n || 1));
+    playSound('dice');
+    await askThrow(side, n, (msg.why || 'Roll') + ' · the other player is waiting');
+    const vals = await throwDiceAsync(Array.from({ length: n }, () => ({ side: DIE_INK[side] ? side : 'Neutral', value: null })));
+    send({ t: 'dres', id: msg.id, vals });
+    toast(`${side} threw ${vals.join(', ')} · ${msg.why || 'Roll'}`, 'roll');
+  }).catch(e => console.error(e));
+}
 function onData(msg) {
   if (!msg || typeof msg !== 'object') return;
+  if (msg.t === 'dreq') { netAnswerThrow(msg); return; }
+  if (msg.t === 'dres') { const f = diceWaits.get(msg.id); if (f) { diceWaits.delete(msg.id); f(msg.vals); } return; }
+  if (msg.t === 'dshow') {
+    const vals = (Array.isArray(msg.vals) ? msg.vals : []).slice(0, 20).map(v => Math.max(1, Math.min(6, Math.round(+v) || 1)));
+    if (vals.length) { throwDice(vals.map(v => ({ side: DIE_INK[msg.side] ? msg.side : 'Neutral', value: v })), () => `${msg.side} threw ${vals.join(', ')}${msg.why ? ' · ' + msg.why : ''}`); }
+    return;
+  }
   if (NET.role === 'host') {
     if (msg.t === 'push') {
       if (+msg.base === NET.v && typeof msg.s === 'string') {

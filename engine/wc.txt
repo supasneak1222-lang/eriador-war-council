@@ -957,7 +957,7 @@ function createArmy(side, f)
   local a = {
     id = newId(), side = side, name = name, size = size, leader = leader, named = f.named and true or false,
     list = f.list or "", merc = f.merc and true or false, cavalry = f.cavalry and true or false, canMarch = f.canMarch and true or false, allied = f.allied and true or false,
-    units = f.units or "", roster = f.roster, loc = n, status = "building", buildLeft = turns, damage = 0, carried = 0,
+    units = f.units or "", roster = f.roster, loc = n, status = "building", buildLeft = turns, damage = 0, carried = 0, paid = cost, raisedAt = n,
     seenLeader = {}, seenUnits = {}, wounds = {},
   }
   table.insert(S.armies, a)
@@ -966,6 +966,27 @@ function createArmy(side, f)
       ") at " .. tname(n) .. ": " .. cost .. " RP, ready in " .. turns .. " turns.", side)
   pieceHook("created", "army", a)
   return true, a
+end
+
+-- Call off an army that is still being raised: it is removed and everything paid for it comes back to the stockpile
+-- it was raised in (or the capital, if that territory has been lost since).
+function raiseCost(a)
+  if a.paid then return a.paid end
+  local c = ARMY_COST[a.size] and ARMY_COST[a.size][1] or 0
+  if a.merc and MERC[1] then c = c + MERC[1].cost end
+  return c
+end
+function cancelRaise(a)
+  if not a then return "Choose an army." end
+  if a.status ~= "building" then return a.name .. " has already been raised: disband it instead." end
+  local ok = stageOk("Building"); if ok ~= true and not S.settings.override then return ok end
+  local refund = raiseCost(a)
+  local n = a.raisedAt or a.loc
+  if not S.terr[n] or S.terr[n].owner ~= a.side then n = ((a.side == "Good") and S.settings.capGood or S.settings.capEvil) or n end
+  if n and S.terr[n] then S.terr[n].stock = (S.terr[n].stock or 0) + refund end
+  clog(a.side .. " called off raising " .. a.name .. ": " .. refund .. " RP returned to " .. (n and tname(n) or "the treasury") .. ".", a.side)
+  removeArmy(a)
+  return true, refund
 end
 
 function moveArmy(a, dest, march)
@@ -11330,6 +11351,9 @@ function uiRun(player, arg)
   elseif a == "rep" then r = replenish(armyById(p1)); say(pk, r, "Replenishing.")
   elseif a == "up" then r = upgradeArmy(armyById(p1)); say(pk, r, "Upgrade started.")
   elseif a == "edit" then r = editArmy(armyById(p1), { leader = f.eLeader, list = f.eList, units = f.eUnits }); say(pk, r, "Army edited.")
+  elseif a == "acancel" then
+    if u.confirm == ("acancel:" .. p1) then r = cancelRaise(armyById(p1)); say(pk, r, "Recruitment cancelled and refunded."); if r == true then u.sel.army = nil end
+    else u.confirm = "acancel:" .. p1; keepConfirm = true end
   elseif a == "disband" then
     if u.confirm == ("disband:" .. p1) then r = disbandArmy(armyById(p1)); say(pk, r, "Army disbanded."); if r == true then u.sel.army = nil end
     else u.confirm = "disband:" .. p1; keepConfirm = true end
