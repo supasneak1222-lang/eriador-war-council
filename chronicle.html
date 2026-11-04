@@ -68,6 +68,7 @@ h1, h2, h3 { font-family: var(--display); font-weight: 700; color: var(--ink); t
 .figbig { float: right; width: 96px; height: 96px; border-radius: 50%; object-fit: cover; margin: 0 0 8px 12px; border: 2px solid var(--rule); background: #f3e7c9; }
 .player .btn.recording { background: #8e2f27; color: #fbf1d8; border-color: #5a1913; animation: recpulse 1.4s ease-in-out infinite; }
 @keyframes recpulse { 0%, 100% { opacity: 1; } 50% { opacity: .7; } }
+.vpreview { position: absolute; left: 0; top: 0; width: 100%; height: auto; pointer-events: none; }
 .sitenote { margin: 0 0 10px; padding: 8px 12px; border: 1px dashed var(--rule); font-size: 15px; color: var(--ink-2, inherit); }
 .tip { position: absolute; pointer-events: none; background: var(--paper-3); border: 1px solid var(--rule); padding: 6px 10px; font-size: 15px; max-width: 260px; box-shadow: 0 4px 14px rgba(0,0,0,.2); }
 .panel { display: flex; flex-direction: column; gap: 16px; }
@@ -554,7 +555,7 @@ svg.eclipsed > image { filter: brightness(.62) saturate(.7) hue-rotate(-8deg); t
         <label><input type="checkbox" id="frontToggle" checked> Front lines</label>
         <label><input type="checkbox" id="soundToggle" checked> Sound</label>
         <span class="musicctl"><label><input type="checkbox" id="musicToggle" checked> Music</label><input type="range" id="musicVol" min="0" max="100" value="70" aria-label="Music volume"><button class="btn mini" id="musicSkip" type="button" title="Next track" aria-label="Next track">&#9197;</button><span class="nowplaying" id="nowPlaying"></span></span>
-        <button class="btn" id="recBtn" type="button" hidden title="Plays the whole campaign from the first turn and saves it as a video">Save as video</button><span class="sub" id="recMsg" role="status"></span>
+        <button class="btn" id="recBtn" type="button" hidden title="Makes an MP4 of the whole campaign, turn by turn, with its music and sounds">Save as video</button><span class="sub" id="recMsg" role="status"></span>
       </div>
       <div class="map" id="map"></div>
       <div class="maplegend" id="legend"></div>
@@ -683,6 +684,7 @@ function castleSvg(side) {
 const REDUCED = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 let state = null, isExample = true, currentCode = SAVED, images = SAVED_IMAGES || {};
+let EXPORT = null;   // while a video is being made: the sounds the replay plays are written down instead
 let frames = [], frameIdx = 0, playing = false, playTimer = null;
 let artifactApi = null, downloads = null;
 
@@ -1626,6 +1628,11 @@ $("soundToggle").addEventListener("change", () => {
 // Play an effect; returns a handle whose stop(ms) fades it out.
 function sfx(name) {
   const none = { stop() {} };
+  if (EXPORT) {
+    const X = EXPORT, e = { t: X.clock ? X.clock.vt : 0, name };
+    if (SFX[name]) X.sfx.push(e);
+    return { stop(ms = 600) { if (e.stopAt == null) { e.stopAt = X.clock ? X.clock.vt : e.t; e.fade = ms; } } };
+  }
   if (!soundOn() || !SFX[name]) return none;
   let a = sfxCache[name];
   if (!a) { a = sfxCache[name] = new Audio(SFX[name]); a.preload = "auto"; }
@@ -2126,7 +2133,7 @@ function audioCtx() {
 }
 // a slow war drum and a low horn, made on the spot
 function deathSound(loser) {
-  if (!soundOn()) return;
+  if (EXPORT || !soundOn()) return;
   const c = audioCtx(); if (!c) return;
   const t0 = c.currentTime + 0.03;
   const out = c.createGain(); out.gain.value = 0.85; out.connect(c.destination);
@@ -2383,7 +2390,7 @@ function playTrack(t, crossMs) {
   setNowPlaying();
 }
 function startMusic() {
-  if (!musicOn() || mus.started) return;
+  if (EXPORT || !musicOn() || mus.started) return;
   mus.started = true;
   playTrack(pickTrack(moodOf(frames[frameIdx])), 3000);
 }
@@ -2394,7 +2401,7 @@ function stopMusic() {
 }
 // when the war turns, the music follows (but lets a track play a while first)
 function musicFollow(f) {
-  if (!mus.started || !mus.a) return;
+  if (EXPORT || !mus.started || !mus.a) return;
   const m = moodOf(f);
   if (m === mus.mood || (m === "war" && mus.mood !== "even" && Math.random() < 0.5)) return;
   if (performance.now() - mus.since < 50000) return;
@@ -2403,6 +2410,7 @@ function musicFollow(f) {
 // quieter under the battle cues and the death of an army
 function musicDuck(to, ms) {
   mus.duck = to;
+  if (EXPORT) { EXPORT.ducks.push({ t: EXPORT.clock ? EXPORT.clock.vt : 0, to, ms }); return; }
   if (!mus.a) return;
   if (mus.fade) { clearInterval(mus.fade); mus.fade = null; }
   mus.fade = fadeAudio(mus.a, musicVol() * to, ms || 800, () => { mus.fade = null; });
@@ -2647,47 +2655,299 @@ function play() {
 }
 function stopPlay() { playing = false; clearTimeout(playTimer); $("playBtn").textContent = "Play"; }
 
-// ---------- the replay as a video: the tab records itself, cropped to the map (Chrome and Edge save MP4)
-let rec = null;
-async function recordReplay() {
-  const btn = $("recBtn"), msg = $("recMsg");
-  if (rec) { if (rec.state !== "inactive") rec.stop(); return; }
-  let stream;
-  try {
-    msg.textContent = "Choose this tab to record, with its audio.";
-    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true, preferCurrentTab: true, selfBrowserSurface: "include", surfaceSwitching: "exclude" });
-  } catch (e) { msg.textContent = "Recording cancelled."; return; }
-  const track = stream.getVideoTracks()[0];
-  try { if (window.CropTarget && track.cropTo) await track.cropTo(await CropTarget.fromElement($("map"))); } catch (e) { /* the whole tab, then */ }
-  const types = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4;codecs=avc1,opus", "video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm"];
-  const type = types.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
-  const chunks = [];
-  try { rec = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 8000000 } : {}); }
-  catch (e) { stream.getTracks().forEach((t) => t.stop()); msg.textContent = "This browser can't record video."; return; }
-  rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-  rec.onstop = () => {
-    stream.getTracks().forEach((t) => t.stop());
-    const mp4 = /mp4/.test(rec.mimeType || type), blob = new Blob(chunks, { type: mp4 ? "video/mp4" : "video/webm" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob); a.download = ($("title").textContent || "Chronicle").trim() + (mp4 ? ".mp4" : ".webm");
-    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 5000);
-    msg.textContent = mp4 ? "Saved as MP4." : "Saved as WebM (this browser doesn't record MP4).";
-    rec = null; btn.textContent = "Save as video"; btn.classList.remove("recording"); stopPlay();
-  };
-  track.addEventListener("ended", () => { if (rec && rec.state !== "inactive") rec.stop(); });
-  btn.textContent = "Stop and save"; btn.classList.add("recording"); msg.textContent = "Recording: the campaign plays from the first turn.";
-  closeInfo(); stopPlay(); showFrame(0, false);
-  await wait(1500);
-  if (!rec) return;
-  rec.start(1000);
-  play();
-  // the last turn shown and everything settled: finish
-  const watch = setInterval(() => {
-    if (!rec) { clearInterval(watch); return; }
-    if (!playing && performance.now() > animEnd + 2500) { clearInterval(watch); setTimeout(() => { if (rec && rec.state !== "inactive") rec.stop(); }, 2500); }
-  }, 500);
+// ---------- the replay as a video, drawn frame by frame ----------
+// The page plays the whole campaign on a clock of its own, one frame at a time: timers, animations and CSS effects
+// all advance exactly 1/30 s per frame, each frame is drawn from the map's layers at full size and encoded straight
+// into an MP4 (WebCodecs, with mp4-muxer). It takes longer than real time on a slow machine, but every frame is whole.
+const VID = { W: 1600, H: 1224, FPS: 30, MUXER: "vendor/mp4-muxer.js" };
+function loadScriptOnce(src) {
+  return new Promise((res, rej) => { if (window.Mp4Muxer) return res(); const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => rej(new Error("Couldn't load " + src)); document.head.appendChild(s); });
 }
-$("recBtn").addEventListener("click", recordReplay);
+function blobToDataURL(b) { return new Promise((r, j) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.onerror = j; fr.readAsDataURL(b); }); }
+async function urlToDataURL(u) { return blobToDataURL(await (await fetch(u)).blob()); }
+// the page's styles for every drawn layer, and its fonts (latin only) for the ones with writing
+async function videoStyles() {
+  const css = [...document.querySelectorAll("style")].map((s) => s.textContent).join("\n");
+  let fonts = "";
+  try {
+    const link = document.querySelector('link[href*="fonts.googleapis.com/css2"]');
+    if (link) {
+      const txt = await (await fetch(link.href)).text();
+      const blocks = txt.split("/*").filter((b) => /^\s*latin\s*\*\//.test(b)).map((b) => b.replace(/^\s*latin\s*\*\//, ""));
+      for (let b of blocks) { const m = /url\((https:[^)]+)\)/.exec(b); if (m) { try { b = b.replace(m[1], await urlToDataURL(m[1])); } catch (e) {} } fonts += b + "\n"; }
+    }
+  } catch (e) { /* the drawn text falls back to a serif */ }
+  // animations are frozen at their own moment on every drawn frame, so the copies must not run them again
+  const freeze = "*{animation:none!important;transition:none!important}";
+  return { plain: css + freeze, withFonts: fonts + css + freeze };
+}
+// a virtual clock: timers, animation frames and the page's sense of time all move only when a frame is made
+function installClock() {
+  const real = { now: performance.now.bind(performance), date: Date.now, raf: window.requestAnimationFrame.bind(window), caf: window.cancelAnimationFrame.bind(window),
+                 st: window.setTimeout.bind(window), ct: window.clearTimeout.bind(window), si: window.setInterval.bind(window), ci: window.clearInterval.bind(window) };
+  const base = real.now(), dbase = real.date();
+  const C = { real, vt: 0, timers: new Map(), rafs: new Map(), id: 1e7, anims: new WeakMap() };
+  performance.now = () => base + C.vt;
+  Date.now = () => dbase + C.vt;
+  window.requestAnimationFrame = (fn) => { const id = ++C.id; C.rafs.set(id, fn); return id; };
+  window.cancelAnimationFrame = (id) => { C.rafs.delete(id); };
+  window.setTimeout = (fn, ms, ...a) => { const id = ++C.id; if (typeof fn === "function") C.timers.set(id, { at: C.vt + Math.max(0, +ms || 0), fn, a }); return id; };
+  window.setInterval = (fn, ms, ...a) => { const id = ++C.id; const every = Math.max(4, +ms || 0); if (typeof fn === "function") C.timers.set(id, { at: C.vt + every, fn, a, every }); return id; };
+  window.clearTimeout = window.clearInterval = (id) => { C.timers.delete(id); };
+  C.restore = () => {
+    performance.now = real.now; Date.now = real.date; window.requestAnimationFrame = real.raf; window.cancelAnimationFrame = real.caf;
+    window.setTimeout = real.st; window.clearTimeout = real.ct; window.setInterval = real.si; window.clearInterval = real.ci;
+    for (const a of document.getAnimations()) { try { a.play(); } catch (e) {} }
+    // what was still waiting runs on the real clock again
+    for (const t of C.timers.values()) { if (t.every) real.si(t.fn, t.every, ...t.a); else real.st(t.fn, Math.max(0, t.at - C.vt), ...t.a); }
+    for (const fn of C.rafs.values()) real.raf(fn);
+  };
+  return C;
+}
+const tick0 = (() => { const ch = new MessageChannel(), q = []; ch.port1.onmessage = () => { const r = q.shift(); if (r) r(); }; return () => new Promise((r) => { q.push(r); ch.port2.postMessage(0); }); })();
+async function advanceClock(C, ms) {
+  const target = C.vt + ms;
+  for (let guard = 0; guard < 4000; guard++) {
+    let best = null, bid = null;
+    for (const [id, t] of C.timers) if (t.at <= target && (!best || t.at < best.at)) { best = t; bid = id; }
+    if (!best) break;
+    C.vt = Math.max(C.vt, best.at);
+    if (best.every) best.at += best.every; else C.timers.delete(bid);
+    try { best.fn(...best.a); } catch (e) { console.error(e); }
+    await Promise.resolve(); await Promise.resolve();
+  }
+  C.vt = target;
+  const fns = [...C.rafs.values()]; C.rafs.clear();
+  const now = performance.now();
+  for (const fn of fns) { try { fn(now); } catch (e) { console.error(e); } }
+  await tick0();
+  // CSS animations and transitions: each held at its own age on the virtual clock
+  for (const a of document.getAnimations()) {
+    let st = C.anims.get(a);
+    const fresh = st == null;
+    if (fresh) { st = C.vt; C.anims.set(a, st); try { a.pause(); } catch (e) {} }
+    let end = Infinity; try { end = a.effect.getComputedTiming().endTime; } catch (e) {}
+    if (end === Infinity) { if (fresh) { try { a.currentTime = 0; } catch (e) {} } continue; }   // endless shimmers hold still
+    const t = Math.max(0, C.vt - st) * (a.playbackRate || 1);
+    if (t >= end) { try { a.finish(); } catch (e) {} continue; }                              // done: it stops being checked
+    try { a.currentTime = t; } catch (e) {}
+  }
+}
+// copy an element, writing in the animated values each moving part shows right now
+const ANIM_PROPS = ["transform", "transform-origin", "transform-box", "translate", "rotate", "scale", "opacity", "fill", "fill-opacity", "stroke", "stroke-opacity", "stroke-dashoffset", "stroke-width", "filter", "width", "max-height"];
+function cloneAnimated(el, targets) {
+  const c = el.cloneNode(true);
+  if (!targets.length) return c;
+  const pathOf = (n) => { const p = []; while (n && n !== el) { p.unshift([...n.parentNode.children].indexOf(n)); n = n.parentNode; } return n === el ? p : null; };
+  for (const t of targets) {
+    const p = pathOf(t); if (!p) continue;
+    let d = c; for (const i of p) { d = d && d.children[i]; }
+    if (!d) continue;
+    const cs = getComputedStyle(t);
+    let st = d.getAttribute("style") || "";
+    for (const k of ANIM_PROPS) { const v = cs.getPropertyValue(k); if (v && v !== "none" && v !== "auto" && v !== "normal") st += `;${k}:${v}`; else if (k === "transform" || k === "translate" || k === "rotate" || k === "scale") st += `;${k}:none`; }
+    d.setAttribute("style", st);
+  }
+  return c;
+}
+async function videoExport() {
+  const btn = $("recBtn"), msg = $("recMsg");
+  if (EXPORT) { EXPORT.cancel = true; return; }
+  if (!window.VideoEncoder || !window.VideoFrame) { msg.textContent = "This browser can't make videos: use Chrome or Edge."; return; }
+  const X = EXPORT = { cancel: false, sfx: [], ducks: [], frames: [] };
+  btn.textContent = "Cancel"; btn.classList.add("recording");
+  const fail = (t) => { msg.textContent = t; };
+  let C = null, encoder = null;
+  try {
+    msg.textContent = "Getting ready...";
+    await loadScriptOnce(VID.MUXER);
+    const styles = await videoStyles();
+    const mapData = await urlToDataURL(MAP_SRC);
+    // the H.264 profile this machine can encode at this size
+    let codec = null;
+    for (const c of ["avc1.640033", "avc1.640028", "avc1.4d0033", "avc1.4d0028", "avc1.42e033", "avc1.42e028"]) {
+      try { const s = await VideoEncoder.isConfigSupported({ codec: c, width: VID.W, height: VID.H, bitrate: 14e6, framerate: VID.FPS }); if (s.supported) { codec = c; break; } } catch (e) {}
+    }
+    let vcodec = "avc";
+    if (!codec) {   // no H.264 encoder here: VP9 in an MP4 still plays in browsers, VLC and most players
+      for (const c of ["vp09.00.40.08", "vp09.00.31.08"]) { try { const s = await VideoEncoder.isConfigSupported({ codec: c, width: VID.W, height: VID.H, bitrate: 14e6, framerate: VID.FPS }); if (s.supported) { codec = c; vcodec = "vp9"; break; } } catch (e) {} }
+    }
+    if (!codec) throw new Error("This browser can't encode video.");
+    const vchunks = [];
+    encoder = new VideoEncoder({ output: (chunk, meta) => vchunks.push([chunk, meta]), error: (e) => { X.err = e; } });
+    encoder.configure(Object.assign({ codec, width: VID.W, height: VID.H, bitrate: 14e6, framerate: VID.FPS }, vcodec === "avc" ? { avc: { format: "avc" } } : {}));
+    const cv = document.createElement("canvas"); cv.width = VID.W; cv.height = VID.H;
+    const ctx = cv.getContext("2d");
+    // the map's layers, each redrawn only when something in it changed or moves
+    const mapEl = $("map");
+    const dirty = new Set(), cache = new Map();
+    const topOf = (n) => { while (n && n.parentNode !== mapEl) n = n.parentNode; return n; };
+    const mo = new MutationObserver((ms) => { for (const m of ms) { const t = topOf(m.target); if (t) dirty.add(t); } });
+    // the live map isn't painted while the video is made (painting it is what costs): a preview of the film shows instead
+    mapEl.style.visibility = "hidden";
+    const pv = document.createElement("canvas"); pv.width = 800; pv.height = 612; pv.className = "vpreview";
+    mapEl.parentNode.style.position = "relative"; mapEl.after(pv);
+    const pvx = pv.getContext("2d");
+    X.cleanup = () => { mapEl.style.visibility = ""; pv.remove(); };
+    mo.observe(mapEl, { subtree: true, childList: true, attributes: true, characterData: true });
+    const ST = window.__vstat = { clock: 0, ser: 0, dec: 0, draw: 0, enc: 0, layers: 0, bytes: 0 };
+    const RN = () => C ? C.real.now() : performance.now();
+    const drawLayer = async (el, targets) => {
+      const q0 = RN();
+      const cw = mapEl.clientWidth, ch = mapEl.clientHeight;
+      const isBase = el === svgBase;
+      const cl = cloneAnimated(el, targets);
+      const native = el.tagName === "svg";
+      if (native) { cl.setAttribute("width", cw); cl.setAttribute("height", ch); cl.setAttribute("x", 0); cl.setAttribute("y", 0); }
+      let body = new XMLSerializer().serializeToString(cl);
+      if (isBase) body = body.split('href="' + MAP_SRC + '"').join('href="' + mapData + '"');
+      const defs = !isBase && svgBase && /url\(#/.test(body) ? `<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute">${svgBase.querySelector("defs").outerHTML}</svg>` : "";
+      const css = (el.tagName !== "svg" || el.querySelector("text")) ? styles.withFonts : styles.plain;
+      // map layers are drawn as plain SVG (much quicker to paint); the written overlays need HTML
+      const doc = native
+        ? `<svg xmlns="http://www.w3.org/2000/svg" class="map" style="background:transparent;border:0;box-shadow:none" width="${VID.W}" height="${VID.H}" viewBox="0 0 ${cw} ${ch}" preserveAspectRatio="none"><style>${css.replace(/<\/style/gi, "")}</style>${defs ? svgBase.querySelector("defs").outerHTML : ""}${body}</svg>`
+        : `<svg xmlns="http://www.w3.org/2000/svg" width="${VID.W}" height="${VID.H}" viewBox="0 0 ${cw} ${ch}" preserveAspectRatio="none"><foreignObject x="0" y="0" width="${cw}" height="${ch}">` +
+        `<div xmlns="http://www.w3.org/1999/xhtml" class="map" style="position:relative;width:${cw}px;height:${ch}px;margin:0;border:0;box-shadow:none;background:transparent;overflow:hidden"><style>${css.replace(/<\/style/gi, "")}</style>${defs}${body}</div></foreignObject></svg>`;
+      (window.__vdocs = window.__vdocs || {})[[...mapEl.children].indexOf(el)] = doc;
+      const img = new Image();
+      const loaded = new Promise((r, j) => { img.onload = r; img.onerror = () => j(new Error("A layer of the map couldn't be drawn.")); });
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(doc);
+      const q1 = RN(); ST.ser += q1 - q0; ST.layers++; ST.bytes += doc.length;
+      await loaded;
+      ST.dec += RN() - q1;
+      const key = [...mapEl.children].indexOf(el) + ":" + (el.getAttribute("class") || el.id || el.tagName) + (targets.length ? "+anim" : "") + (css === styles.withFonts ? "+fonts" : "");
+      (ST.by = ST.by || {})[key] = ST.by[key] || [0, 0, 0]; ST.by[key][0]++; ST.by[key][1] += RN() - q1; ST.by[key][2] = doc.length;
+      return img;
+    };
+    // sound: what the replay plays, written down to mix afterwards
+    X.sfxNames = Object.keys(SFX);
+    stopMusic(); stopPlay(); closeInfo();
+    C = X.clock = installClock();
+    showFrame(0, false);
+    const total = { est: frames.length };
+    let n = 0, started = false, settleAt = null;
+    const t0 = C.real.now();
+    const dt = 1000 / VID.FPS;
+    while (!X.cancel) {
+      const a0 = C.real.now(); await advanceClock(C, dt); ST.clock += C.real.now() - a0;
+      if (!started && C.vt >= 1200) { started = true; play(); }
+      X.frames.push([C.vt, frameIdx]);
+      // draw: every layer, in order, the unchanged ones from their last picture
+      // moving parts: animations and transitions that end (the endless shimmers and glows hold still in the video)
+      const anims = document.getAnimations().filter((a) => { try { const t = a.effect.getComputedTiming(); return t.iterations !== Infinity && a.currentTime < t.endTime; } catch (e) { return false; } })
+        .map((a) => a.effect && a.effect.target).filter(Boolean);
+      const d0 = C.real.now();
+      ctx.fillStyle = "#c9b88f"; ctx.fillRect(0, 0, VID.W, VID.H);
+      for (const el of [...mapEl.children]) {
+        if (el.hidden || el.id === "tip" || getComputedStyle(el).display === "none") continue;
+        if (el.tagName !== "svg" && (!el.innerHTML.trim() || +getComputedStyle(el).opacity === 0)) continue;
+        const targets = anims.filter((t) => el.contains(t));
+        if (!cache.has(el) || dirty.has(el) || targets.length) cache.set(el, await drawLayer(el, targets));
+        ctx.drawImage(cache.get(el), 0, 0, VID.W, VID.H);
+      }
+      dirty.clear(); ST.draw += C.real.now() - d0;
+      if (n % 6 === 0) pvx.drawImage(cv, 0, 0, pv.width, pv.height);
+      if (window.__vnoenc) { n++; if (window.__videoMaxFrames && n >= window.__videoMaxFrames) break; continue; }
+      const frame = new VideoFrame(cv, { timestamp: Math.round(n * 1e6 / VID.FPS), duration: Math.round(1e6 / VID.FPS) });
+      encoder.encode(frame, { keyFrame: n % (VID.FPS * 2) === 0 });
+      frame.close();
+      n++;
+      const e0 = C.real.now();
+      while (encoder.encodeQueueSize > 6) await new Promise((r) => C.real.st(r, 5));
+      ST.enc += C.real.now() - e0;
+      if (X.err) throw X.err;
+      // the end: the last turn shown, every animation settled, a few seconds to linger
+      if (window.__videoMaxFrames && n >= window.__videoMaxFrames) break;
+      if (started && !playing && C.vt > animEnd + 1500) { if (settleAt == null) settleAt = C.vt; if (C.vt - settleAt > 3000) break; }
+      if (n % 15 === 0) {
+        const el = (C.real.now() - t0) / 1000, sv = C.vt / 1000;
+        msg.textContent = `Making the video: turn ${frames[frameIdx] ? frames[frameIdx].t : "?"} of ${frames[frames.length - 1].t} · ${Math.floor(sv / 60)}:${String(Math.floor(sv % 60)).padStart(2, "0")} of film so far · ${(sv / Math.max(0.1, el)).toFixed(2)}x speed`;
+        await tick0();
+      }
+    }
+    mo.disconnect();
+    const cancelled = X.cancel;
+    const seconds = n / VID.FPS;
+    C.restore(); C = null;
+    await encoder.flush();
+    if (cancelled) { encoder.close(); msg.textContent = "Video cancelled."; return; }
+    // the sound: the soundtrack under it all, quieter under battle cues, and every effect where it played
+    msg.textContent = "Mixing the sound...";
+    const audio = await mixVideoAudio(X, seconds).catch((e) => { console.error(e); return null; });
+    msg.textContent = "Writing the file...";
+    const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), fastStart: "in-memory", firstTimestampBehavior: "offset",
+      video: { codec: vcodec, width: VID.W, height: VID.H, frameRate: VID.FPS },
+      audio: audio ? { codec: "aac", numberOfChannels: 2, sampleRate: audio.rate } : undefined });
+    for (const [c, m] of vchunks) muxer.addVideoChunk(c, m);
+    if (audio) for (const [c, m] of audio.chunks) muxer.addAudioChunk(c, m);
+    muxer.finalize();
+    encoder.close();
+    const blob = new Blob([muxer.target.buffer], { type: "video/mp4" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = ($("title").textContent || "Chronicle").trim() + ".mp4";
+    if (window.__vnodl) { window.__vblob = blob; } else { document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 8000); }
+    msg.textContent = `Saved: ${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")} of video${audio ? "" : " (without sound: this browser can't encode it)"}.`;
+  } catch (e) {
+    console.error(e); fail("The video couldn't be made: " + (e && e.message ? e.message : e));
+  } finally {
+    if (X.cleanup) X.cleanup();
+    if (C) C.restore();
+    try { if (encoder && encoder.state !== "closed") encoder.close(); } catch (e) {}
+    EXPORT = null; btn.textContent = "Save as video"; btn.classList.remove("recording");
+  }
+}
+async function mixVideoAudio(X, seconds) {
+  if (!window.AudioEncoder || !window.OfflineAudioContext) return null;
+  const rate = 48000;
+  const cfg = { codec: "mp4a.40.2", sampleRate: rate, numberOfChannels: 2, bitrate: 192000 };
+  try { if (!(await AudioEncoder.isConfigSupported(cfg)).supported) return null; } catch (e) { return null; }
+  const oc = new OfflineAudioContext(2, Math.ceil(seconds * rate), rate);
+  const bufs = {};
+  const load = async (url) => { if (!(url in bufs)) { try { bufs[url] = await oc.decodeAudioData(await (await fetch(url)).arrayBuffer()); } catch (e) { bufs[url] = null; } } return bufs[url]; };
+  // the soundtrack: tracks one after another, chosen by how the war stands at that moment, ducked under battle cues
+  const vol = musicVol();
+  const mg = oc.createGain(); mg.gain.value = vol; mg.connect(oc.destination);
+  for (const d of X.ducks) { const t = d.t / 1000; mg.gain.setTargetAtTime(vol * d.to, Math.max(0, t), Math.max(0.05, (d.ms || 800) / 3000)); }
+  if (musicOn()) {
+    let t = 0;
+    while (t < seconds - 1) {
+      const fr = X.frames.find((f) => f[0] / 1000 >= t) || X.frames[X.frames.length - 1];
+      const tr = pickTrack(moodOf(frames[fr ? fr[1] : 0]));
+      mus.recent.push(tr.f); while (mus.recent.length > 5) mus.recent.shift();
+      const b = await load("music/" + tr.f + ".mp3");
+      if (!b) { t += 5; continue; }
+      const s = oc.createBufferSource(); s.buffer = b;
+      const g = oc.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + 2.5);
+      const end = Math.min(seconds, t + b.duration);
+      g.gain.setValueAtTime(1, Math.max(t + 2.5, end - 2.5)); g.gain.linearRampToValueAtTime(0, end);
+      s.connect(g); g.connect(mg); s.start(t); s.stop(end);
+      t = end - 2;
+    }
+  }
+  if (soundOn()) {
+    for (const e of X.sfx) {
+      const b = await load(SFX[e.name]); if (!b) continue;
+      const s = oc.createBufferSource(); s.buffer = b;
+      const g = oc.createGain(); const t = e.t / 1000; g.gain.setValueAtTime(SFX_VOL[e.name] || .5, t);
+      if (e.stopAt != null) { const st = e.stopAt / 1000; g.gain.setValueAtTime(SFX_VOL[e.name] || .5, st); g.gain.linearRampToValueAtTime(0, st + (e.fade || 600) / 1000); s.stop(st + (e.fade || 600) / 1000 + 0.05); }
+      s.connect(g); g.connect(oc.destination); s.start(t);
+    }
+  }
+  const out = await oc.startRendering();
+  const chunks = [];
+  const enc = new AudioEncoder({ output: (c, m) => chunks.push([c, m]), error: (e) => console.error(e) });
+  enc.configure(cfg);
+  const L = out.getChannelData(0), R = out.getChannelData(1), step = 1024;
+  for (let i = 0; i < out.length; i += step) {
+    const nf = Math.min(step, out.length - i), data = new Float32Array(nf * 2);
+    data.set(L.subarray(i, i + nf), 0); data.set(R.subarray(i, i + nf), nf);
+    const ad = new AudioData({ format: "f32-planar", sampleRate: rate, numberOfFrames: nf, numberOfChannels: 2, timestamp: Math.round(i / rate * 1e6), data });
+    enc.encode(ad); ad.close();
+  }
+  await enc.flush(); enc.close();
+  return { rate, chunks };
+}
+$("recBtn").addEventListener("click", videoExport);
 
 $("prevTurn").addEventListener("click", () => { stopPlay(); showFrame(frameIdx - 1, true); });
 $("nextTurn").addEventListener("click", () => { stopPlay(); showFrame(frameIdx + 1, true); });
@@ -3211,7 +3471,7 @@ if (SITE_CODE) {
   try { state = parseCode(SAVED); isExample = false; } catch (e) { state = parseCode(EXAMPLE); isExample = true; }
 } else { state = parseCode(EXAMPLE); isExample = true; }
 render();
-if (ON_SITE && navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia && window.MediaRecorder) $("recBtn").hidden = false;
+if (ON_SITE && window.VideoEncoder && window.VideoFrame) $("recBtn").hidden = false;
 if (ON_SITE) {
   const note = document.createElement("div");
   note.className = "sitenote";
