@@ -215,6 +215,9 @@ a.btn-link:hover{filter:brightness(1.08)}
 .net-chip .dot{width:8px;height:8px;border-radius:50%;background:#6b5a44;display:inline-block}.net-chip .dot.on{background:#6fd08a;box-shadow:0 0 6px #6fd08a}
 .net-chip.err{border-color:#a0402c;color:#f0a58e}.net-chip.join{cursor:default;color:var(--gold)}.net-chip.join button{padding:3px 8px;font-size:11px}
 .seg button.locked{opacity:.35;cursor:not-allowed}
+#asBar{position:fixed;left:50%;top:calc(58px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:60;display:flex;gap:8px;align-items:center;max-width:calc(100% - 32px);
+  background:rgba(30,20,12,.95);border:1px solid #b08a3e;color:#f3e7c9;padding:6px 10px;border-radius:6px;font-size:14px;box-shadow:0 6px 18px rgba(0,0,0,.4)}
+#asBar button{font:inherit;cursor:pointer}
 #toasts{position:fixed;left:50%;bottom:calc(22px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;align-items:center;
   pointer-events:none;width:min(620px,calc(100vw - 32px))}
 .toast{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 16px;font-size:16.5px;text-align:center;animation:tin .25s ease}
@@ -458,7 +461,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=fdc9ff2ddf').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=b3c05de35e').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -473,7 +476,73 @@ function persist() {
   try { localStorage.setItem(NET.role === 'guest' ? 'eriador.online' : SAVE_KEY, s); } catch (e) { /* private window or storage full: the campaign still runs */ }
   if (NET.on && !NET.applying) netQueue(s);
   if (window.__chronSoon) window.__chronSoon();
+  asSoon();
 }
+// ------------------------------------------------------------------ auto-save: one file, in a folder the player picks, replaced with the campaign as it stands
+const AUTOSAVE = { dir: null, state: 'off', at: 0, err: '', timer: null, name: 'Eriador campaign.json' };
+const asSupported = () => !!window.showDirectoryPicker;
+// The folder itself isn't stored (reading a stored folder back crashes some browsers in private windows): only its name,
+// so after a reload the page offers to resume, and the folder picker opens on that folder again.
+const AS_KEY = 'eriador.autosave';
+const asRemembered = () => { try { return localStorage.getItem(AS_KEY) || ''; } catch (e) { return ''; } };
+async function asPut(d) { try { if (d) localStorage.setItem(AS_KEY, d.name); else localStorage.removeItem(AS_KEY); } catch (e) { /* this visit only */ } }
+async function asWrite() {
+  clearTimeout(AUTOSAVE.timer);
+  if (AUTOSAVE.state !== 'on' || !AUTOSAVE.dir || !S) return;
+  try {
+    const fh = await AUTOSAVE.dir.getFileHandle(AUTOSAVE.name, { create: true });
+    const w = await fh.createWritable();   // written beside the old file, then swapped in: the save is never half-written
+    await w.write(luaCall('appSave')); await w.close();
+    AUTOSAVE.at = Date.now(); AUTOSAVE.err = '';
+  } catch (e) {
+    AUTOSAVE.err = (e && e.message) || String(e);
+    if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) AUTOSAVE.state = 'paused';
+  }
+  renderAutosave();
+}
+function asSoon() { if (AUTOSAVE.state !== 'on') return; clearTimeout(AUTOSAVE.timer); AUTOSAVE.timer = setTimeout(asWrite, 2500); }
+async function asChoose() {
+  try {
+    const d = await window.showDirectoryPicker({ id: 'eriador-saves', mode: 'readwrite', startIn: 'documents' });
+    AUTOSAVE.dir = d; AUTOSAVE.state = 'on'; await asPut(d); await asWrite();
+    if (AUTOSAVE.state === 'on' && !AUTOSAVE.err) toast(`Auto-save on: ${AUTOSAVE.name} in ${d.name}.`, 'roll');
+  } catch (e) { if (!e || e.name !== 'AbortError') toast("Couldn't use that folder: " + ((e && e.message) || e), 'err'); }
+  renderAutosave();
+}
+async function asResume() {
+  const d = AUTOSAVE.dir;
+  if (!d) return asChoose();   // after a reload: pick the folder again (the picker opens on it)
+  try { if ((await d.requestPermission({ mode: 'readwrite' })) === 'granted') { AUTOSAVE.state = 'on'; await asWrite(); } } catch (e) { /* asked again next time */ }
+  renderAutosave();
+}
+async function asStop() { clearTimeout(AUTOSAVE.timer); AUTOSAVE.dir = null; AUTOSAVE.remembered = ''; AUTOSAVE.state = 'off'; AUTOSAVE.err = ''; await asPut(null); renderAutosave(); }
+function asSectionHtml() {
+  const A = AUTOSAVE, f = escH(A.dir ? A.dir.name : A.remembered || '');
+  let h = '<h3>Auto-save</h3>';
+  if (!asSupported()) return h + '<p class="hint">This browser can\'t save into a folder by itself: use Chrome, Edge or Opera GX, or use Download the campaign.</p>';
+  if (A.state === 'off') return h + `<div class="row"><button data-as="choose">Choose a save folder</button></div><p class="hint">Keeps one file, <i>${A.name}</i>, in the folder you pick, and replaces it with the latest campaign a few seconds after every change. No pile of old saves.</p>`;
+  if (A.state === 'paused') return h + `<div class="row"><button data-as="resume" class="gold">Resume auto-save</button><button data-as="stop">Turn off</button></div><p class="hint">After the page reloads, the browser needs you to point it at the folder again: click Resume, then pick <b>${f}</b> (the picker opens there) and allow it. Until then, changes aren't saved to the folder (they're still kept in this browser).</p>`;
+  return h + `<div class="row"><span>Saving to <b>${f}\\${A.name}</b>${A.at ? ` <small style="color:var(--dim)">· saved ${new Date(A.at).toLocaleTimeString()}</small>` : ''}</span></div>` +
+    (A.err ? `<p class="hint" style="color:#e08a7a">The last save failed: ${escH(A.err)}</p>` : '') +
+    `<div class="row"><button data-as="save">Save now</button><button data-as="choose">Change folder</button><button data-as="stop">Turn off</button></div><p class="hint">Replaced with the latest campaign a few seconds after every change. To load it, use Load a campaign file and pick it.</p>`;
+}
+function escH(t) { return String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function renderAutosave() {
+  const sec = document.getElementById('asSec'); if (sec) sec.innerHTML = asSectionHtml();
+  let bar = document.getElementById('asBar');
+  if (AUTOSAVE.state === 'paused') {
+    if (!bar) { bar = document.createElement('div'); bar.id = 'asBar'; document.body.appendChild(bar); }
+    bar.innerHTML = `Auto-save is paused (the page was reloaded). <button data-as="resume" class="gold">Resume auto-save</button> <button data-as="dismiss" aria-label="Hide">✕</button>`;
+  } else if (bar) bar.remove();
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('[data-as]'); if (!b) return;
+  const k = b.dataset.as;
+  if (k === 'choose') asChoose(); else if (k === 'resume') asResume(); else if (k === 'stop') asStop(); else if (k === 'save') asWrite();
+  else if (k === 'dismiss') { const bar = document.getElementById('asBar'); if (bar) bar.remove(); }
+});
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && AUTOSAVE.timer) asWrite(); });
+if (asSupported() && asRemembered()) { AUTOSAVE.remembered = asRemembered(); AUTOSAVE.state = 'paused'; setTimeout(renderAutosave, 0); }
 const DICE_ACTIONS = new Set(['prio', 'rule', 'gmove', 'gact', 'retreat', 'bprio', 'bapply', 'evtroll']);
 function act(arg, fields, quiet, opts = {}) {
   if (NET.role === 'guest' && !(NET.conn && NET.conn.open && NET.seat)) { toast('Not connected to the host: wait a moment.', 'err'); return { ok: false }; }
@@ -2420,6 +2489,7 @@ function renderSettings() {
     h += `<h3>Save and load</h3><div class="row"><button data-c="export">Download the campaign</button><button data-c="load" title="Opens a file you made with Download the campaign, or a Tabletop Simulator save">Load a campaign file</button>
       <button data-twice2="reset" title="Throw away the turns played here and go back to the campaign from your TTS save">Reset to the TTS campaign</button></div>
       <p class="hint">Download the campaign saves a file (named like <i>Eriador campaign - turn 14.json</i>). Load a campaign file opens that file again, or a Tabletop Simulator save; you can also drop the file onto the table. Reset asks twice.</p>`;
+    h += `<div id="asSec">${asSectionHtml()}</div>`;
     const bks = backups();
     h += `<h3>Turn backups</h3>` + sw(st.backups !== false, 'backups', 'Back up at the start of every turn', 'Keeps the last 5 turns in this browser') +
       (bks.length ? bks.map(b => `<div class="item"><span>Turn ${b.turn} <small style="color:var(--dim)">· ${new Date(b.at).toLocaleString()}</small></span><button data-restore="${b.turn}">Restore</button></div>`).join('') : note('No backups yet: one is made when the next turn starts.'));
@@ -3943,7 +4013,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=fdc9ff2ddf').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=b3c05de35e').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4151,7 +4221,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=fdc9ff2ddf').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=b3c05de35e').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
