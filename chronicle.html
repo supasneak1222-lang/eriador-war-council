@@ -2829,14 +2829,17 @@ async function videoExport() {
     const t0 = C.real.now();
     const dt = 1000 / VID.FPS;
     while (!X.cancel) {
+      if (ST.lastLoop) ST.loop = (ST.loop || 0) + C.real.now() - ST.lastLoop; ST.lastLoop = C.real.now();
       const a0 = C.real.now(); await advanceClock(C, dt); ST.clock += C.real.now() - a0;
       if (!started && C.vt >= 1200) { started = true; play(); }
       X.frames.push([C.vt, frameIdx]);
       // draw: every layer, in order, the unchanged ones from their last picture
       // moving parts: animations and transitions that end (the endless shimmers and glows hold still in the video)
+      const g0 = C.real.now();
       const anims = document.getAnimations().filter((a) => { try { const t = a.effect.getComputedTiming(); return t.iterations !== Infinity && a.currentTime < t.endTime; } catch (e) { return false; } })
         .map((a) => a.effect && a.effect.target).filter(Boolean);
       const d0 = C.real.now();
+      ST.ganim = (ST.ganim || 0) + C.real.now() - g0;
       ctx.fillStyle = "#c9b88f"; ctx.fillRect(0, 0, VID.W, VID.H);
       for (const el of [...mapEl.children]) {
         if (el.hidden || el.id === "tip" || getComputedStyle(el).display === "none") continue;
@@ -2846,11 +2849,13 @@ async function videoExport() {
         ctx.drawImage(cache.get(el), 0, 0, VID.W, VID.H);
       }
       dirty.clear(); ST.draw += C.real.now() - d0;
+      const f0 = C.real.now();
       if (n % 6 === 0) pvx.drawImage(cv, 0, 0, pv.width, pv.height);
       if (window.__vnoenc) { n++; if (window.__videoMaxFrames && n >= window.__videoMaxFrames) break; continue; }
       const frame = new VideoFrame(cv, { timestamp: Math.round(n * 1e6 / VID.FPS), duration: Math.round(1e6 / VID.FPS) });
       encoder.encode(frame, { keyFrame: n % (VID.FPS * 2) === 0 });
       frame.close();
+      ST.vf = (ST.vf || 0) + C.real.now() - f0;
       n++;
       const e0 = C.real.now();
       while (encoder.encodeQueueSize > 6) await new Promise((r) => C.real.st(r, 5));
@@ -2910,7 +2915,7 @@ async function mixVideoAudio(X, seconds) {
   for (const d of X.ducks) { const t = d.t / 1000; mg.gain.setTargetAtTime(vol * d.to, Math.max(0, t), Math.max(0.05, (d.ms || 800) / 3000)); }
   if (musicOn()) {
     let t = 0;
-    while (t < seconds - 1) {
+    for (let guard = 0; t < seconds - 1 && guard < 400; guard++) {
       const fr = X.frames.find((f) => f[0] / 1000 >= t) || X.frames[X.frames.length - 1];
       const tr = pickTrack(moodOf(frames[fr ? fr[1] : 0]));
       mus.recent.push(tr.f); while (mus.recent.length > 5) mus.recent.shift();
@@ -2921,7 +2926,8 @@ async function mixVideoAudio(X, seconds) {
       const end = Math.min(seconds, t + b.duration);
       g.gain.setValueAtTime(1, Math.max(t + 2.5, end - 2.5)); g.gain.linearRampToValueAtTime(0, end);
       s.connect(g); g.connect(mg); s.start(t); s.stop(end);
-      t = end - 2;
+      if (end >= seconds - 0.05) break;
+      t = Math.max(t + 1, end - 2);    // the next track comes in under the last two seconds of this one
     }
   }
   if (soundOn()) {
