@@ -2794,7 +2794,8 @@ async function videoExport() {
     const RN = () => C ? C.real.now() : performance.now();
     const drawLayer = async (el, targets) => {
       const q0 = RN();
-      const cw = mapEl.clientWidth, ch = mapEl.clientHeight;
+      // laid out at a fixed size, whatever the window: the same film on any screen
+      const cw = 900, ch = Math.round(900 * GEO.h / GEO.w);
       const isBase = el === svgBase;
       const cl = cloneAnimated(el, targets);
       const native = el.tagName === "svg";
