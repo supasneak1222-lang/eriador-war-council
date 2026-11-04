@@ -1814,13 +1814,13 @@ function dispatchFor(prev, next) {
 
 // the dispatch sits right under the title cartouche, lined up with it
 function placeHeadline() {
-  const el = $("headline"), map = $("map"), c = map && map.querySelector(".cartouche");
-  if (!el || !c) return;
-  const m = map.getBoundingClientRect(), r = c.getBoundingClientRect();
-  if (!r.width) return;
-  el.style.left = (r.left - m.left) + "px";
-  el.style.top = (r.bottom - m.top + 6) + "px";
-  el.style.width = Math.max(260, r.width) + "px";
+  // in shares of the map (the cartouche sits at 30,26 scaled 1.35, 370 by 88), so it lands in the same place at any size, the video's too
+  const el = $("headline");
+  if (!el) return;
+  const S = 1.35, pc = (v) => (v * 100).toFixed(3) + "%";
+  el.style.left = pc(30 / GEO.w);
+  el.style.top = `calc(${pc((26 + 88 * S) / GEO.h)} + 6px)`;
+  el.style.width = `max(260px, ${pc(370 * S / GEO.w)})`;
 }
 window.addEventListener("resize", () => { if ($("headline")?.classList.contains("on")) placeHeadline(); });
 function showHeadline(idx) {
