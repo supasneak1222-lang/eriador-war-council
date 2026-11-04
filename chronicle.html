@@ -637,7 +637,7 @@ svg.eclipsed > image { filter: brightness(.62) saturate(.7) hue-rotate(-8deg); t
   </div>
   <article class="sheet" id="sheet"></article>
   <div class="shotEdit" id="shotEdit" hidden>
-    <div><b>Screenshots for this report</b> &middot; up to 4. They're shrunk to save space and saved into this page, so everyone with the link sees them.</div>
+    <div><b>Screenshots for this report</b> &middot; up to 4. <span id="shotWhere">They're shrunk to save space and saved into this page, so everyone with the link sees them.</span></div>
     <div id="shotRows"></div>
     <div class="row">
       <label class="btn" for="shotFile">Add screenshots</label>
@@ -3310,6 +3310,13 @@ function render() {
 
 // ---------- report sheet + screenshots ----------
 let openId = null, staged = null;
+// on the War Council's site the screenshots are kept in this browser (the claude.ai copy saves them into its page)
+const SHOT_DB = {
+  open() { return new Promise((res, rej) => { const r = indexedDB.open("eriador-chronicle", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
+  async get() { const db = await this.open(); return new Promise((res) => { const q = db.transaction("kv").objectStore("kv").get("shots"); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); }); },
+  async put(v) { const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction("kv", "readwrite"); t.objectStore("kv").put(v, "shots"); t.oncomplete = () => res(); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); }); },
+};
+function canEditShots() { return !isExample && (ON_SITE ? !!window.indexedDB : !!artifactApi); }
 function shotsHtml(id) {
   const shots = list(images[String(id)]);
   if (!shots.length) return "";
@@ -3342,7 +3349,7 @@ function openReport(id) {
   $("sheetWrap").hidden = false;
   $("saveMsg").textContent = "";
   $("shotEdit").hidden = true;
-  $("editShots").hidden = !(artifactApi && !isExample);
+  $("editShots").hidden = !canEditShots();
   $("sheetWrap").scrollTop = 0;
   try { history.replaceState(null, "", "#report-" + openId); } catch (e) { /* not needed */ }
 }
@@ -3357,7 +3364,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("shee
 
 $("saveImg").addEventListener("click", async () => {
   const msg = $("saveMsg");
-  if (!downloads || typeof html2canvas === "undefined") { msg.textContent = "Saving images isn't available in this view."; return; }
+  if ((!downloads && !ON_SITE) || typeof html2canvas === "undefined") { msg.textContent = "Saving images isn't available in this view."; return; }
   msg.textContent = "Making the image...";
   try {
     await document.fonts.ready;
@@ -3365,7 +3372,8 @@ $("saveImg").addEventListener("click", async () => {
     const canvas = await html2canvas(node, { scale: 2, backgroundColor: "#f1e4c4", useCORS: true, width: node.offsetWidth, height: node.offsetHeight });
     const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
     const title = (node.querySelector("h2")?.textContent || "Battle report").replace(/[^\w \-']/g, "").trim() || "Battle report";
-    await downloads.save({ filename: title + ".png", data: blob });
+    if (downloads) await downloads.save({ filename: title + ".png", data: blob });
+    else { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = title + ".png"; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 8000); }
     msg.textContent = "Saved.";
   } catch (e) {
     msg.textContent = (e && e.code === "declined") ? "Not saved." : "Couldn't save the image" + (e && e.message ? ": " + e.message : ".");
@@ -3418,6 +3426,18 @@ function totalImageBytes(imgs) { let n = 0; Object.values(imgs).forEach((arr) =>
 
 $("saveShots").addEventListener("click", async () => {
   const msg = $("shotMsg");
+  if (ON_SITE) {
+    const next = { ...images, [openId]: staged.map((s) => ({ src: s.src, cap: (s.cap || "").slice(0, 160) })) };
+    if (!next[openId].length) delete next[openId];
+    msg.textContent = "Saving...";
+    try {
+      await SHOT_DB.put(next);
+      images = next;
+      const id = openId; render(); openReport(id);
+      $("shotMsg").textContent = "Saved in this browser.";
+    } catch (e) { msg.textContent = "Couldn't save: " + (e && e.message ? e.message : "this browser's storage is full or turned off."); }
+    return;
+  }
   if (!artifactApi || !currentCode) { msg.textContent = "Only the campaign's owner can save screenshots, after the first update."; return; }
   const next = { ...images, [openId]: staged.map((s) => ({ src: s.src, cap: (s.cap || "").slice(0, 160) })) };
   if (!next[openId].length) delete next[openId];
@@ -3480,6 +3500,8 @@ if (SITE_CODE) {
 render();
 if (ON_SITE && window.VideoEncoder && window.VideoFrame) $("recBtn").hidden = false;
 if (ON_SITE) {
+  $("shotWhere").textContent = "They're shrunk to save space and kept in this browser, with the campaign's Chronicle.";
+  (async () => { try { const v = await SHOT_DB.get(); if (v && Object.keys(v).length) { images = v; const id = openId; render(); if (id) openReport(id); } } catch (e) { /* no saved screenshots */ } })();
   const note = document.createElement("div");
   note.className = "sitenote";
   note.innerHTML = SITE_CODE ? "This Chronicle follows the War Council open in this browser: it updates as you play."
@@ -3501,8 +3523,8 @@ if (ON_SITE) {
       if (!downloads) $("saveImg").hidden = true;
       artifactApi = await claude.use("artifact");
       if (!artifactApi) $("openUpdate").hidden = true;
-      if (openId) $("editShots").hidden = !(artifactApi && !isExample);
-    } else { $("saveImg").hidden = true; $("openUpdate").hidden = true; }
+      if (openId) $("editShots").hidden = !canEditShots();
+    } else { $("openUpdate").hidden = true; }
   } catch (e) { /* the page still reads fine without saving */ }
 })();
 </script>
