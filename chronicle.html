@@ -372,6 +372,8 @@ section > h2::after { content: ""; position: absolute; left: 50%; bottom: -5px; 
 .repcard { position: absolute; left: 50%; top: 50%; width: min(86%, 560px); transform: translate(-50%, -46%) scale(.97); opacity: 0; pointer-events: none;
   transition: opacity .7s ease, transform .7s ease; background: linear-gradient(160deg, #fbf3df, #efe0bd); border: 1px solid #8a6a32; outline: 1px solid rgba(138,106,50,.45); outline-offset: -7px;
   box-shadow: 0 14px 40px rgba(30,15,0,.45); padding: 16px 22px 14px; color: var(--ink); text-align: center; }
+.recrange { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; }
+.recrange select { font: inherit; font-size: 15px; padding: 3px 4px; border: 1px solid var(--rule); background: #fffaf0; color: var(--ink); }
 .repcard.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 .repcard .re { font-family: var(--display); font-size: 11px; letter-spacing: .24em; color: var(--gold); }
 .repcard h4 { font-family: var(--display); font-weight: 700; font-size: 25px; line-height: 1.15; margin: 4px 0 2px; }
@@ -571,7 +573,7 @@ svg.eclipsed > image { filter: brightness(.62) saturate(.7) hue-rotate(-8deg); t
         <label><input type="checkbox" id="frontToggle" checked> Front lines</label>
         <label><input type="checkbox" id="soundToggle" checked> Sound</label>
         <span class="musicctl"><label><input type="checkbox" id="musicToggle" checked> Music</label><input type="range" id="musicVol" min="0" max="100" value="70" aria-label="Music volume"><button class="btn mini" id="musicSkip" type="button" title="Next track" aria-label="Next track">&#9197;</button><span class="nowplaying" id="nowPlaying"></span></span>
-        <button class="btn" id="recBtn" type="button" hidden title="Makes an MP4 of the whole campaign, turn by turn, with its music and sounds">Save as video</button><a class="btn primary" id="recDl" hidden>Download the video</a><span class="sub" id="recMsg" role="status"></span>
+        <span class="recrange" id="recRange" hidden>Turns <select id="recFrom" aria-label="First turn of the video"></select> to <select id="recTo" aria-label="Last turn of the video"></select></span><button class="btn" id="recBtn" type="button" hidden title="Makes an MP4 of the turns chosen, with their music and sounds">Save as video</button><a class="btn primary" id="recDl" hidden>Download the video</a><span class="sub" id="recMsg" role="status"></span>
       </div>
       <div class="map" id="map"></div>
       <div class="maplegend" id="legend"></div>
@@ -2689,13 +2691,15 @@ function playDelay() {
   const reps = fights.length ? reportsForFights(fights).length : 0;
   return fights.length ? 14000 + (fights.some((b) => losersOf(b).some((x) => x.fate === "Destroyed")) ? 5500 : 0) + reps * (REPORT_MS + 1300) : 4500;
 }
+let playStop = null;   // the last frame to play to (the video's turn range); none = the end
 function play() {
   if (playing) { stopPlay(); return; }
   playing = true; $("playBtn").textContent = "Pause";
-  if (frameIdx >= frames.length - 1) showFrame(0, false);
+  const last = () => (playStop != null ? Math.min(playStop, frames.length - 1) : frames.length - 1);
+  if (frameIdx >= last() && playStop == null) showFrame(0, false);
   const step = () => {
     if (!playing) return;
-    if (frameIdx >= frames.length - 1) { stopPlay(); return; }
+    if (frameIdx >= last()) { stopPlay(); return; }
     const d = REDUCED ? 900 : playDelay();
     showFrame(frameIdx + 1, true);
     const t0 = performance.now();
@@ -2806,6 +2810,21 @@ function cloneAnimated(el, targets) {
   }
   return c;
 }
+// the turns the video covers: from the start of the first turn chosen to the end of the last (its battles included)
+function fillRecRange() {
+  const from = $("recFrom"), to = $("recTo"); if (!from || !frames.length) return;
+  const ts = [...new Set(frames.map((f) => f.t))].sort((a, b) => a - b);
+  const keep = (sel, def) => { const v = sel.value; sel.innerHTML = ts.map((t) => `<option value="${t}">${t}</option>`).join(""); sel.value = ts.includes(+v) ? v : String(def); };
+  keep(from, ts[0]); keep(to, ts[ts.length - 1]);
+}
+function recRangeIdx() {
+  let a = +$("recFrom").value, b = +$("recTo").value; if (!(a <= b)) [a, b] = [b, a];
+  let i0 = frames.findIndex((f) => f.t >= a); if (i0 < 0) i0 = 0;
+  // the end of turn b is the frame that starts turn b+1 (it carries turn b's battles); else the last frame there is
+  let i1 = frames.findIndex((f) => !f.live && f.t === b + 1);
+  if (i1 < 0) { i1 = frames.length - 1; for (let k = frames.length - 1; k >= 0; k--) { if (frames[k].t <= b + 1) { i1 = k; break; } } }
+  return { a, b, i0, i1: Math.max(i0, i1) };
+}
 async function videoExport() {
   const btn = $("recBtn"), msg = $("recMsg");
   if (EXPORT) { EXPORT.cancel = true; return; }
@@ -2816,6 +2835,7 @@ async function videoExport() {
   const fail = (t) => { msg.textContent = t; };
   let C = null, encoder = null;
   try {
+    $("recFrom").disabled = $("recTo").disabled = true;
     msg.textContent = "Getting ready...";
     await loadScriptOnce(VID.MUXER);
     const styles = await videoStyles();
@@ -2880,9 +2900,9 @@ async function videoExport() {
     X.sfxNames = Object.keys(SFX);
     stopMusic(); stopPlay(); closeInfo();
     C = X.clock = installClock();
-    showFrame(0, false);
-    const total = { est: frames.length };
-    let n = 0, started = false, settleAt = null;
+    const R = recRangeIdx();
+    showFrame(R.i0, false); playStop = R.i1;
+    let n = 0, started = false, settleAt = null, stoppedAt = null;
     const t0 = C.real.now();
     const dt = 1000 / VID.FPS;
     while (!X.cancel) {
@@ -2920,11 +2940,17 @@ async function videoExport() {
       if (X.err) throw X.err;
       // the end: the last turn shown, every animation settled, a few seconds to linger
       if (window.__videoMaxFrames && n >= window.__videoMaxFrames) break;
-      if (started && !playing && C.vt > animEnd + 1500) { if (settleAt == null) settleAt = C.vt; if (C.vt - settleAt > 3000) break; }
+      if (started && !playing) {
+        if (stoppedAt == null) stoppedAt = C.vt;
+        if (C.vt > animEnd + 1500) { if (settleAt == null) settleAt = C.vt; if (C.vt - settleAt > 3000) break; }
+        if (C.vt - stoppedAt > 9000) break;   // whatever is still moving, the film ends a few seconds after the last turn
+      }
+      // the last turn has played long enough: stop the replay so the film can end (a held-up animation can't keep it going)
+      if (started && playing && frameIdx >= R.i1) { if (X.lastAt == null) X.lastAt = C.vt; if (C.vt - X.lastAt > Math.max(30000, playDelay() + 12000)) stopPlay(); }
       if (n % 15 === 0) {
         const el = (C.real.now() - t0) / 1000, sv = C.vt / 1000;
-        const pct = Math.min(99, Math.round(100 * frameIdx / Math.max(1, frames.length - 1)));
-        msg.textContent = `Making the video, ${pct}% (turn ${frames[frameIdx] ? frames[frameIdx].t : "?"} of ${frames[frames.length - 1].t}) · ${Math.floor(sv / 60)}:${String(Math.floor(sv % 60)).padStart(2, "0")} of film so far. The preview plays slower than the film: leave this tab open until it says Done.`;
+        const pct = Math.min(99, Math.round(100 * (frameIdx - R.i0) / Math.max(1, R.i1 - R.i0)));
+        msg.textContent = `Making the video, ${pct}% (turn ${frames[frameIdx] ? Math.min(R.b, frames[frameIdx].t) : "?"}, turns ${R.a} to ${R.b}) · ${Math.floor(sv / 60)}:${String(Math.floor(sv % 60)).padStart(2, "0")} of film so far. The preview plays slower than the film: leave this tab open until it says Done.`;
         await tick0();
       }
     }
@@ -2948,7 +2974,8 @@ async function videoExport() {
     const blob = new Blob([muxer.target.buffer], { type: "video/mp4" });
     vchunks.length = 0;
     // a link that stays: some browsers block a download that starts on its own after a long wait
-    const name = (($("title").textContent || "Chronicle").trim().replace(/[\\/:*?"<>|]+/g, "") || "Chronicle") + ".mp4";
+    const whole = R.i0 === 0 && R.i1 === frames.length - 1;
+    const name = (($("title").textContent || "Chronicle").trim().replace(/[\\/:*?"<>|]+/g, "") || "Chronicle") + (whole ? "" : (R.a === R.b ? ` - turn ${R.a}` : ` - turns ${R.a}-${R.b}`)) + ".mp4";
     dl.href = URL.createObjectURL(blob); dl.download = name; dl.hidden = false;
     if (window.__vnodl) window.__vblob = blob; else { try { dl.click(); } catch (e) { /* the link is there to click */ } }
     const mb = Math.round(blob.size / 1048576);
@@ -2959,7 +2986,8 @@ async function videoExport() {
     if (X.cleanup) X.cleanup();
     if (C) C.restore();
     try { if (encoder && encoder.state !== "closed") encoder.close(); } catch (e) {}
-    EXPORT = null; btn.textContent = "Save as video"; btn.classList.remove("recording");
+    EXPORT = null; playStop = null; btn.textContent = "Save as video"; btn.classList.remove("recording");
+    $("recFrom").disabled = $("recTo").disabled = false;
   }
 }
 async function mixVideoAudio(X, seconds) {
@@ -3348,6 +3376,7 @@ function render() {
   if (state.hidden) banner += '<div class="notice">Hidden information is on, so this page shows public information only: who holds each territory, where armies stand (known by their number until their leader is revealed), battles and reports.</div>';
   $("banner").innerHTML = banner;
   buildFrames();
+  if (!EXPORT) fillRecRange();
   FALLEN = computeFallen();
   setupMap();
   showFrame(frames.length - 1, false);
@@ -3568,7 +3597,7 @@ if (SITE_CODE) {
   try { state = parseCode(SAVED); isExample = false; } catch (e) { state = parseCode(EXAMPLE); isExample = true; }
 } else { state = parseCode(EXAMPLE); isExample = true; }
 render();
-if (ON_SITE && window.VideoEncoder && window.VideoFrame) $("recBtn").hidden = false;
+if (ON_SITE && window.VideoEncoder && window.VideoFrame) { $("recBtn").hidden = false; $("recRange").hidden = false; }
 if (ON_SITE) {
   $("shotWhere").textContent = "They're shrunk to save space and kept in this browser, with the campaign's Chronicle.";
   (async () => { try { const v = await SHOT_DB.get(); if (v && Object.keys(v).length) { images = v; const id = openId; render(); if (id) openReport(id); } } catch (e) { /* no saved screenshots */ } })();
