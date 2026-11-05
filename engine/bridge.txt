@@ -131,6 +131,10 @@ function appState()
   local th = ALLIANCES[S.settings.theatre or "Eriador"] or {}
   out.alliance = { Good = th.Good, Evil = th.Evil, usedGood = alliedArmy("Good") and true or false, usedEvil = alliedArmy("Evil") and true or false }
   out.armyCost = ARMY_COST
+  out.theatreRules = theatreRules()
+  out.mapKey = theatreMap(S.settings.theatre or "Eriador")
+  out.theatreMaps = {}
+  for k, m in pairs(THEATRE_MAPS) do out.theatreMaps[k] = { names = m.names, capGood = m.capGood, capEvil = m.capEvil } end
   -- what is written over each territory on the map (public), and each side's own secrets
   out.markers = {}
   for n, t in ipairs(S.terr) do
@@ -154,7 +158,7 @@ function appReach(kind, id)
     if a.status == "building" or (a.moved and not S.settings.override) then return JSON.encode({ normal = {}, march = {} }) end
     local budget = armyMove(a) - (a.slow or 0)
     local normal = moveRangeFor(a, true, budget)
-    local march = a.canMarch and moveRangeFor(a, true, budget + 1) or {}
+    local march = a.canMarch and moveRangeFor(a, true, budget + marchBonus(a)) or {}
     return JSON.encode({ normal = normal, march = march })
   else
     local g = agentById(id)

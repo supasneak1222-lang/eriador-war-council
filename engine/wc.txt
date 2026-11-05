@@ -50,6 +50,86 @@ ADJ = {
 }
 START = { [6] = "Evil", [12] = "Evil", [13] = "Evil", [14] = "Evil", [15] = "Evil", [22] = "Evil", [23] = "Evil", [26] = "Good", [27] = "Good", [28] = "Good", [31] = "Evil", [32] = "Good", [35] = "Good", [36] = "Good", [37] = "Good", [38] = "Good" }
 
+-- Each theatre's map. Gondor has no board of its own yet and plays on the Eriador map.
+-- NAMES / ADJ / START always hold the map in use; useTheatreMap swaps them in place.
+function copyList(t) local o = {}; for k, v in pairs(t) do o[k] = v end; return o end
+THEATRE_MAPS = {
+  Eriador = { names = copyList(NAMES), adj = copyList(ADJ), start = copyList(START), capGood = 26, capEvil = 6 },
+  Rohan = { names = { "Strannon", "Swanfleet", "Glanduin Vale", "Dunland", "Dunland Fells", "Tharbad Road", "North-South Road", "Isen Downs", "Lower Isen", "Adorn Vale", "Westmarch", "Angrenost (Isengard)", "Fords of Isen", "Gap of Rohan", "Helm's Deep", "Westfold", "Oralinga", "Dunharrow", "Edoras", "Wellinghall", "Entmoot", "Treegarth", "Limsworth", "Silverlode", "Anduin Vale", "Fangirth", "Field of Celebrant", "Lake Elinmere", "Sillings", "Woldhigar", "The Wold", "Eastbury", "West Emnet", "Entwade", "East Emnet", "Elmad", "Fenmarch", "Aldburg", "Firien Wood", "Mering Stream" },
+  adj = {
+  { 2, 3, 4 },
+  { 1, 3 },
+  { 1, 2, 4, 5, 6 },
+  { 1, 3, 5 },
+  { 3, 4, 6, 7, 8 },
+  { 3, 5, 7 },
+  { 5, 6, 8, 9 },
+  { 5, 7, 9, 13 },
+  { 7, 8, 10, 11, 13 },
+  { 9, 11 },
+  { 9, 10, 13 },
+  { 14 },
+  { 8, 9, 11, 14, 16 },
+  { 12, 13, 16, 17 },
+  { 16, 18 },
+  { 13, 14, 15, 17, 18, 19 },
+  { 14, 16, 19, 20, 21, 33, 34 },
+  { 15, 16, 19 },
+  { 16, 17, 18, 34, 37 },
+  { 17, 21, 22, 23 },
+  { 17, 20, 23, 29, 33 },
+  { 20, 23, 24, 26 },
+  { 20, 21, 22, 26, 29 },
+  { 22, 25, 26 },
+  { 24, 26, 27 },
+  { 22, 23, 24, 25, 27, 28, 29 },
+  { 25, 26, 28, 31 },
+  { 26, 27, 29, 30, 31 },
+  { 21, 23, 26, 28, 30, 33, 35 },
+  { 28, 29, 31, 32, 35, 36 },
+  { 27, 28, 30, 32 },
+  { 30, 31, 36, 40 },
+  { 17, 21, 29, 34, 35 },
+  { 17, 19, 33, 35, 37 },
+  { 29, 30, 33, 34, 36, 37, 38 },
+  { 30, 32, 35, 38, 39, 40 },
+  { 19, 34, 35, 38 },
+  { 35, 36, 37, 39 },
+  { 36, 38, 40 },
+  { 32, 36, 39 }
+  },
+  start = { [5] = "Evil", [8] = "Evil", [12] = "Evil", [13] = "Evil", [15] = "Good", [18] = "Good", [19] = "Good", [34] = "Good" }, capGood = 19, capEvil = 12 },
+}
+CUR_MAP = "Eriador"
+function theatreMap(th) return (th == "Rohan") and "Rohan" or "Eriador" end
+function useTheatreMap(th)
+  local key = theatreMap(th)
+  if CUR_MAP == key then return false end
+  local m = THEATRE_MAPS[key]
+  for _, t in ipairs({ { NAMES, m.names }, { ADJ, m.adj }, { START, m.start } }) do
+    for k in pairs(t[1]) do t[1][k] = nil end
+    for k, v in pairs(t[2]) do t[1][k] = v end
+  end
+  CUR_MAP = key
+  return true
+end
+function terrByName(name) for n, nm in ipairs(NAMES) do if nm == name then return n end end end
+-- Change the theatre. A different map is only possible before the campaign starts (or as it is started anew).
+function setTheatre(th, starting)
+  if not THEATRE_MAPS[theatreMap(th)] or not ALLIANCES[th] then return "There is no theatre called " .. tostring(th) .. "." end
+  local same = theatreMap(th) == theatreMap(S.settings.theatre or "Eriador")
+  if not same and S.started and not starting then return "The " .. th .. " theatre has its own map: start a new campaign there (Settings > Campaign) to change to it." end
+  S.settings.theatre = th
+  if not same then
+    useTheatreMap(th)
+    local m = THEATRE_MAPS[theatreMap(th)]
+    S.settings.capGood, S.settings.capEvil = m.capGood, m.capEvil
+    S.routes = {}; S.slotOv = {}
+    if not S.started then for n = 1, #NAMES do S.terr[n] = { owner = START[n] or "Neutral", stock = 0, b = {}, q = {}, conq = nil, bslot = {} } end end
+  end
+  return true
+end
+
 STAGES = { "Priority", "Logistics", "Building", "Battle", "Retreat", "End" }
 SIDES = { "Good", "Evil" }
 OTHER = { Good = "Evil", Evil = "Good" }
@@ -287,7 +367,7 @@ end
 function income(n)
   if S.terr[n].owner == "Neutral" then return 0 end
   if (S.terr[n].noIncome or 0) > 0 then return 0 end   -- pillaged or scorched
-  return BASE_INCOME + (S.terr[n].b.city and CITY_INCOME or 0)
+  return BASE_INCOME + (S.terr[n].b.city and CITY_INCOME or 0) + industryBonus(n)
 end
 
 function countBuildings(side, key)
@@ -449,7 +529,7 @@ function armyUpkeep(a) return ((a.size or 400) <= 600) and 25 or 50 end
 function inFriendlyLand(a) return a.loc and S.terr[a.loc] and S.terr[a.loc].owner == a.side end
 -- Out of supplies: outside its own territory with nothing left to eat. It can't move and fights at +2 Courage.
 function outOfSupplies(a)
-  return a and a.status ~= "building" and not inFriendlyLand(a) and (a.carried or 0) <= 0
+  return a and a.status ~= "building" and not a.fangorn and not inFriendlyLand(a) and (a.carried or 0) <= 0
 end
 
 function armyMove(a)
@@ -542,13 +622,14 @@ function setOwner(n, owner, why)
   local old = t.owner
   t.owner = owner
   t.conq = nil
-  if why == "conquered" then pcall(eventConquered, n, owner) end
+  if why == "conquered" then pcall(eventConquered, n, owner); pcall(theatreConquered, n, owner) end
   if t.sow and why == "conquered" then
     clog("The discontent in " .. tname(n) .. " has passed.", nil, "territories")
     t.sow = nil
   end
   syncOwner(n)
   clog(tname(n) .. ": " .. old .. " -> " .. owner .. (why and (" (" .. why .. ")") or ""), nil, "territories")
+  pcall(checkEnts)
   checkVictory()
 end
 
@@ -589,6 +670,7 @@ function startCampaign()
     S.terr[cap].b.fort = true
     pieceHook("built", cap, "fort")
   end
+  pcall(rulesAtStart)
   clog("The campaign begins. Each side receives " .. keep.startRP .. " RP (Good at " .. tname(keep.capGood) ..
       ", Evil at " .. tname(keep.capEvil) .. "). Both capitals begin with Fortifications.")
   startOfTurn(true)
@@ -632,6 +714,7 @@ end
 
 -- Runs when a new turn begins: income and all countdowns. The campaign's first turn collects no income.
 function startOfTurn(firstTurn)
+  pcall(checkEnts)
   for n, t in ipairs(S.terr) do
     if not firstTurn then
       t.stock = t.stock + income(n)
@@ -752,7 +835,9 @@ function endOfTurn()
     for _, side in ipairs(SIDES) do
       if present[side] and t.owner ~= side and not present[OTHER[side]] then attacker = side end
     end
-    if attacker and shield[n] then
+    if attacker and t.owner == "Good" and S.peasants == S.turn then
+      clog(tname(n) .. " holds out this turn (Peasants' Pride)" .. (t.conq and t.conq.by == attacker and (": the conquest stays at " .. (t.conq.prog or 0) .. "/" .. (t.conq.need or "?")) or "") .. ".", nil, "territories")
+    elseif attacker and shield[n] then
       if not t.conq or t.conq.prog > 0 or not t.conq.held then
         clog(tname(n) .. " can't be conquered while the fortress at " .. tname(shield[n]) .. " holds.", nil, "territories")
       end
@@ -922,9 +1007,9 @@ function construct(side, n, key)
     return tname(n) .. " already has " .. MAX_BUILDINGS .. " buildings (finished or being built). A territory can hold at most " .. MAX_BUILDINGS .. "."
   end
   local r = payOrFail(side, n, b.cost); if r ~= true then return r end
-  local turns = buildTurns(side, key)
+  local turns = buildTurns(side, key, n)
   table.insert(t.q, { key = key, left = turns, total = turns, side = side })
-  clog(side .. " began building " .. b.name .. " at " .. tname(n) .. " (" .. turns .. " turns" .. ((turns < b.turns) and ", Hobbit Laborers" or "") .. ").", side)
+  clog(side .. " began building " .. b.name .. " at " .. tname(n) .. " (" .. turns .. " turns" .. ((turns < b.turns) and (", " .. ((side == "Good") and "Hobbit Laborers" or "Tear Them All Down")) or "") .. ").", side)
   return true
 end
 
@@ -944,7 +1029,7 @@ POINT_CAP_BASE, POINT_CAP_CITY = 2000, 600
 function armyCap(side) return POINT_CAP_BASE + POINT_CAP_CITY * countBuildings(side, "city") end
 function armyPoints(side, except)
   local p = 0
-  for _, a in ipairs(S.armies) do if a.side == side and a ~= except then p = p + (a.upTo or a.size or 0) end end
+  for _, a in ipairs(S.armies) do if a.side == side and a ~= except and not a.fangorn then p = p + (a.upTo or a.size or 0) end end
   return p
 end
 function armyCount(side)
@@ -1039,7 +1124,8 @@ function moveArmy(a, dest, march)
   end
   local held = eventNoMove(a)
   if held and not S.settings.override then return a.name .. " can't move this turn: " .. held .. "." end
-  local budget = armyMove(a) + (march and 1 or 0) - (a.slow or 0)
+  local budget = armyMove(a) + (march and marchBonus(a) or 0) - (a.slow or 0)
+  if fangornBlocked(a, tonumber(dest)) and not S.settings.override then return "The Ents will only march into the Ent lands (Wellinghall, Treegarth, Limsworth and Entmoot)." end
   local okDest = false
   for _, x in ipairs(reachable(a.loc, budget, false, nil, a.side)) do if x == dest then okDest = true end end
   if not okDest and not S.settings.override then return tname(dest) .. " is out of range." end
@@ -1564,7 +1650,7 @@ function battleModifiers(n, atk, def)
   local lines = {}
   local prio = { Good = 0, Evil = 0 }
   if t.b.fort and t.owner ~= "Neutral" then
-    table.insert(lines, "Fortifications: this is a SIEGE. " .. t.owner .. " gains a 400 pt garrison.")
+    table.insert(lines, "Fortifications: this is a SIEGE. " .. t.owner .. " gains a " .. garrisonSize(n) .. " pt garrison" .. ((garrisonSize(n) > 400) and " (The Hornburg)" or "") .. ".")
   end
   if t.b.scouttower and t.owner ~= "Neutral" then
     prio[t.owner] = prio[t.owner] + 1
@@ -1963,6 +2049,7 @@ end
 
 -- JSON round-trips can turn numeric keys into strings; normalise here.
 function fixState()
+  useTheatreMap(S.settings and S.settings.theatre or "Eriador")
   local def = newState()
   if S.mapVer == nil then S.mapVer = 1 end   -- saved before the cropped map
   for k, v in pairs(def) do if S[k] == nil then S[k] = v end end
@@ -2902,7 +2989,8 @@ local function applyOrder(a, o)
     a.carried = (a.carried or 0) + got
     t.noIncome = math.max(t.noIncome or 0, 1)
     t.noIncomeBy = { k = "pillage", s = a.side }
-    say(a.name .. " pillaged " .. tname(n) .. ": " .. take .. " RP taken from its stores" .. ((bonus > 0) and (", plus " .. bonus .. " from Rhudaur Raiders") or "") ..
+    a.pillagedT = S.turn
+    say(a.name .. " pillaged " .. tname(n) .. ": " .. take .. " RP taken from its stores" .. ((bonus > 0) and (", plus " .. bonus .. " from " .. pillageBonusWhy(a)) or "") ..
         ((got < take + bonus) and (" (" .. got .. " carried off, the rest destroyed)") or "") .. ". It produces no supplies next turn.")
     actEvent(a, o, pubName(a) .. " took " .. got .. " RP")
   elseif o.k == "sabotage" then
@@ -2971,7 +3059,13 @@ function moveRangeFor(unit, isArmy, budget)
     for _, m in ipairs(ADJ[unit.loc] or {}) do table.insert(out, m) end
     return out
   end
-  return reachable(unit.loc, budget, (not isArmy) and unit.type == "Supply Wagon", (not isArmy) and agentRoadFree(unit) or nil, unit.side)
+  local out = reachable(unit.loc, budget, (not isArmy) and unit.type == "Supply Wagon", (not isArmy) and agentRoadFree(unit) or nil, unit.side)
+  if isArmy and unit.fangorn then
+    local keep = {}
+    for _, m in ipairs(out) do if not fangornBlocked(unit, m) then table.insert(keep, m) end end
+    out = keep
+  end
+  return out
 end
 
 -- Campaigns from before the Chronicle kept action records: rebuild them from the log once.
@@ -3108,13 +3202,13 @@ SPECIAL_RULES = {
   },
   Rohan = {
     Good = {
-      { key = "swiftness", name = "Swiftness of the Riddermark", text = "A Heroic March gives +2 regions instead of +1." },
-      { key = "hornburg", name = "The Hornburg", text = "Good starts with Fortifications in the Hornburg; its garrison is 600 points instead of 400." },
+      { key = "swiftness", name = "Swiftness of the Riddermark", auto = true, text = "A Heroic March gives +2 regions instead of +1." },
+      { key = "hornburg", name = "The Hornburg", auto = true, text = "Good starts with Fortifications in the Hornburg (Helm's Deep); its garrison is 600 points instead of 400." },
       { key = "eorlingas", name = "Forth Eorlingas!", text = "Once per campaign, after a friendly territory is lost, Good may raise a free 600 point Kingdom of Rohan army in an adjacent friendly territory, ready at once. It can take no Heroes other than a Captain of Rohan." },
     },
     Evil = {
-      { key = "whitehand", name = "An Army Worthy of Mordor", text = "Evil starts the campaign with a free 400 point Army of the White Hand in its capital." },
-      { key = "teardown", name = "Tear Them All Down", text = "Evil's capital builds everything 1 turn quicker." },
+      { key = "whitehand", name = "An Army Worthy of Mordor", auto = true, text = "Evil starts the campaign with a free 400 point Army of the White Hand in its capital." },
+      { key = "teardown", name = "Tear Them All Down", auto = true, text = "Evil's capital builds everything 1 turn quicker." },
       { key = "wormtongue", name = "Tongue of a Worm", text = "In the Logistics stage, Evil may target a Good army led by a Hero of Legend: on a 3+ it cannot move this turn unless forced to retreat. Usable every turn." },
     },
   },
@@ -3132,9 +3226,116 @@ SPECIAL_RULES = {
   },
 }
 
+-- Rules of the theatre as a whole, not a benefit for either side.
+THEATRE_RULES = {
+  Rohan = {
+    { key = "ents", name = "Wrath of the Ents",
+      text = "If Evil holds two or more of Wellinghall, Treegarth, Limsworth and Entmoot, a 600 point Fangorn army awakens in Entmoot, controlled by Good. It may only move into those four territories and must be used to retake them. Once none of them is left in Evil hands, the territories it retook return to Neutral and the Ents go home." },
+    { key = "industry", name = "Powers of Industry",
+      text = "Wellinghall, Treegarth, Limsworth and Entmoot each produce 25 extra RP a turn while Evil holds them. This stacks with any City built there." },
+  },
+}
+ENT_LANDS = { "Wellinghall", "Treegarth", "Limsworth", "Entmoot" }
+
 do  -- keep helpers out of the main chunk (Lua allows 200 locals there)
 
 local function theatre() return (S and S.settings.theatre) or "Eriador" end
+
+function theatreRules() return THEATRE_RULES[theatre()] or {} end
+function theatreRule(key)
+  for _, r in ipairs(theatreRules()) do if r.key == key then return r end end
+  return nil
+end
+function entLand(n)
+  if theatre() ~= "Rohan" then return false end
+  local nm = NAMES[n]
+  for _, e in ipairs(ENT_LANDS) do if e == nm then return true end end
+  return false
+end
+-- Powers of Industry: +25 RP for Evil in the Ent lands
+function industryBonus(n)
+  if theatreRule("industry") and S.terr[n] and S.terr[n].owner == "Evil" and entLand(n) then return 25 end
+  return 0
+end
+function fangornArmy()
+  for _, a in ipairs(S.armies) do if a.fangorn then return a end end
+end
+-- Wrath of the Ents: wake them, or send them home. Called whenever a territory changes hands and each turn.
+local entsBusy = false
+function checkEnts()
+  if entsBusy or not S.started or not theatreRule("ents") then return end
+  entsBusy = true
+  local ok, err = pcall(function()
+    S.ents = S.ents or {}
+    local lands, held = {}, 0
+    for n = 1, #NAMES do if entLand(n) then table.insert(lands, n); if S.terr[n].owner == "Evil" then held = held + 1 end end end
+    local f = fangornArmy()
+    if S.ents.status == "awake" and not f then
+      S.ents.status = "fallen"
+      clog("The Ents of Fangorn have fallen. They will not march again.", nil, "armies")
+      return
+    end
+    if not f and held >= 2 and S.ents.status ~= "fallen" then
+      local en = terrByName("Entmoot")
+      local a = { id = newId(), side = "Good", name = "The Ents of Fangorn", size = 600, leader = "", named = false, list = "Fangorn",
+                  merc = false, cavalry = false, canMarch = false, allied = false, fangorn = true, units = "", loc = en, status = "ready",
+                  buildLeft = 0, damage = 0, carried = 0, seenLeader = {}, seenUnits = {}, wounds = {} }
+      table.insert(S.armies, a)
+      numberArmy(a)
+      S.ents = { status = "awake", t = S.turn, won = {} }
+      clog("Wrath of the Ents! Evil holds " .. held .. " of the Ent lands, and Fangorn has woken: a 600 point Fangorn army (" .. pubName(a) ..
+           ") stands in " .. NAMES[en] .. " under Good's command. It may only march into the Ent lands, and must retake them.", nil, "armies")
+      pieceHook("created", "army", a)
+    elseif f and held == 0 then
+      local back = {}
+      for _, n in ipairs(lands) do
+        if S.ents.won and S.ents.won[tostring(n)] and S.terr[n].owner == "Good" then setOwner(n, "Neutral", "the Ents went home"); table.insert(back, NAMES[n]) end
+      end
+      removeArmy(f)
+      S.ents.status = "home"
+      clog("The Ent lands are free of Evil. The Ents return to Fangorn" .. ((#back > 0) and (", and " .. table.concat(back, ", ") .. " return" .. ((#back == 1) and "s" or "") .. " to Neutral.") or "."), nil, "armies")
+    end
+  end)
+  entsBusy = false
+  if not ok then print("War Council ents: " .. tostring(err)) end
+end
+-- a territory changed hands by conquest: note what the Ents retook
+function theatreConquered(n, owner)
+  if owner == "Good" and entLand(n) and S.ents and S.ents.status == "awake" then
+    for _, a in ipairs(armiesIn(n, "Good")) do if a.fangorn then S.ents.won = S.ents.won or {}; S.ents.won[tostring(n)] = true end end
+  end
+end
+-- The Fangorn army only goes into the Ent lands.
+function fangornBlocked(a, dest) return a and a.fangorn and not entLand(dest) end
+
+-- The Hornburg: Helm's Deep's garrison
+function garrisonSize(n)
+  if hasRule("Good", "hornburg") and S.terr[n].owner == "Good" and NAMES[n] == "Helm's Deep" then return 600 end
+  return 400
+end
+-- Swiftness of the Riddermark: a Heroic March gives +2 regions
+function marchBonus(a)
+  if a and a.side == "Good" and hasRule("Good", "swiftness") then return 2 end
+  return 1
+end
+-- what the special rules set up at the start of a campaign
+function rulesAtStart()
+  if hasRule("Good", "hornburg") then
+    local hd = terrByName("Helm's Deep")
+    if hd and not S.terr[hd].b.fort then S.terr[hd].b.fort = true; pieceHook("built", hd, "fort") end
+    if hd then clog("The Hornburg: Helm's Deep begins with Fortifications, and its garrison is 600 points.") end
+  end
+  if hasRule("Evil", "whitehand") then
+    local cap = S.settings.capEvil
+    local a = { id = newId(), side = "Evil", name = "Army of the White Hand", size = 400, leader = "", named = false, list = "",
+                merc = false, cavalry = false, canMarch = false, allied = false, units = "", loc = cap, status = "ready",
+                buildLeft = 0, damage = 0, carried = 0, seenLeader = {}, seenUnits = {}, wounds = {} }
+    table.insert(S.armies, a)
+    numberArmy(a)
+    clog("An Army Worthy of Mordor: Evil begins with a free 400 point Army of the White Hand at " .. tname(cap) .. ".", "Evil", "armies")
+    pieceHook("created", "army", a)
+  end
+end
 
 -- Is special rule `key` in force for `side` in this campaign?
 function hasRule(side, key)
@@ -3153,9 +3354,10 @@ function ruleCooldown(side, key)
 end
 
 -- Build time after special rules (Hobbit Laborers).
-function buildTurns(side, key)
+function buildTurns(side, key, n)
   local t = BUILDING_BY_KEY[key].turns
   if key == "roads" and side == "Good" and hasRule("Good", "hobbits") then t = t - 1 end
+  if side == "Evil" and hasRule("Evil", "teardown") and (n == nil or n == S.settings.capEvil) and n ~= nil then t = t - 1 end
   return math.max(1, t)
 end
 
@@ -3171,8 +3373,16 @@ end
 
 -- Extra pillage loot (Rhudaur Raiders).
 function pillageBonus(a)
-  if a.side == "Evil" and (a.size or 0) <= 400 and hasRule("Evil", "raiders") then return 50 end
-  return 0
+  local b = 0
+  if a.side == "Evil" and (a.size or 0) <= 400 and hasRule("Evil", "raiders") then b = b + 50 end
+  if a.side == "Evil" and S.dunland == S.turn then b = b + 50 end    -- Dunland's Rage (random event)
+  return b
+end
+function pillageBonusWhy(a)
+  local w = {}
+  if a.side == "Evil" and (a.size or 0) <= 400 and hasRule("Evil", "raiders") then table.insert(w, "Rhudaur Raiders") end
+  if a.side == "Evil" and S.dunland == S.turn then table.insert(w, "Dunland's Rage") end
+  return table.concat(w, " and ")
 end
 
 -- Extra movement this turn (Iron Fist of Angmar).
@@ -3269,6 +3479,34 @@ EVENT_TABLES = {
   },
 }
 
+-- Rohan: five events of its own for each side, plus the five both sides share in Eriador.
+do
+  local function shared(side)
+    local out = {}
+    for _, k in ipairs({ "drought", "snow", "mercs", "bandits", "illness" }) do
+      for _, d in ipairs(EVENT_TABLES.Eriador[side]) do if d.key == k then table.insert(out, d) end end
+    end
+    return out
+  end
+  local good = {
+    { key = "peasants", name = "Peasants' Pride", text = "The peasants of Rohan are a proud people who will not be subjugated by evil easily: no Good territory can be conquered this turn, and any conquest of a Good territory already under way is paused." },
+    { key = "gondor", name = "Gondor's Relief", text = "Gondor has sent supplies in our dire need: Good gains 100 RP at its capital." },
+    { key = "theoden", name = "Sickness of Théoden", text = "Théoden King has briefly fallen under the evil spell of Saruman: every Good army has +1 Courage in battles this turn." },
+    { key = "horses", name = "Sick Horses", text = "The horse plague has returned: cavalry-only Good armies cannot move this turn." },
+    { key = "eorl", name = "Eorl's Birthday", text = "The birthday of our honoured ancestor has arrived, a joyous occasion. Good may spend 100 RP from any of its territories to give every Good army -2 Courage in battles this turn." },
+  }
+  local evil = {
+    { key = "bread", name = "Maggoty Bread", text = "The Orcs don't like the maggoty bread they are served and have become enraged: one random Evil army refuses to move this turn, and if it fights a battle this turn it has +2 Courage." },
+    { key = "ilk", name = "Mordor Ilk", text = "The proud Uruk-hai do not like working with the Mordor rabble and a brawl has broken out: one random Evil army rolls a D6. On a 3+ nothing happens; otherwise it suffers 25% casualties." },
+    { key = "dunland", name = "Dunland's Rage", text = "The Men of Dunland are eager to slaughter the people of Rohan: this turn Evil armies gain an extra 50 RP from pillaging, and an Evil army that pillages this turn has -1 Courage in battles this turn." },
+    { key = "saruman", name = "Fell Speech of Saruman", text = "Saruman has harnessed the power of his voice: Evil chooses one Good army, and it cannot move this turn." },
+    { key = "goblinraid", name = "Goblins Come", text = "Goblins have come down from the Misty Mountains to deal with the White Wizard. Evil may pay them 100 RP from any of its territories; they then run amok in Rohan, and one Good army that Evil chooses, standing in a Good territory, suffers 25% casualties." },
+  }
+  for _, d in ipairs(shared("Good")) do table.insert(good, d) end
+  for _, d in ipairs(shared("Evil")) do table.insert(evil, d) end
+  EVENT_TABLES.Rohan = { Good = good, Evil = evil }
+end
+
 do  -- keep helpers out of the main chunk (Lua allows 200 locals there)
 
 local ELF_NAMES = { "elrond", "gil-galad", "glorfindel", "cirdan", "círdan", "elladan", "elrohir", "arwen", "erestor", "gildor", "legolas", "thranduil",
@@ -3330,6 +3568,10 @@ function eventBattleLines(n, a, lines)
   if S.rhudaurT == S.turn and a.side == "Evil" and hasRhudaur(a) then table.insert(lines, pubName(a) .. ": Rhudaur Discontent, +2 Courage for its Rhudaur units.") end
   if a.craving == S.turn then table.insert(lines, pubName(a) .. ": Craving Man-flesh, may declare a free army-wide Heroic March on the first turn.") end
   if a.forceRetreat == S.turn then table.insert(lines, pubName(a) .. " must retreat after this battle (Troll Hoard), win or lose.") end
+  if a.side == "Good" and S.theoden == S.turn then table.insert(lines, pubName(a) .. ": Sickness of Théoden, +1 Courage this battle.") end
+  if a.side == "Good" and S.eorl == S.turn then table.insert(lines, pubName(a) .. ": Eorl's Birthday, -2 Courage this battle.") end
+  if a.breadT == S.turn then table.insert(lines, pubName(a) .. ": Maggoty Bread, +2 Courage this battle.") end
+  if a.side == "Evil" and S.dunland == S.turn and (a.pillagedT == S.turn or (a.order and a.order.k == "pillage")) then table.insert(lines, pubName(a) .. ": Dunland's Rage, pillaged this turn, -1 Courage this battle.") end
 end
 -- a battle uses up the Tomb of Kings
 function eventAfterBattle(...)
@@ -3467,6 +3709,56 @@ local function apply(side, ev)
     local names = {}
     for _, a in ipairs(readyArmies(side, hasOrcs)) do a.craving = S.turn; table.insert(names, pubName(a)) end
     d = (#names > 0) and (table.concat(names, ", ") .. " must find a battle this turn or refuse to move next turn.") or "No army contains Orcs or Goblins."
+  elseif k == "peasants" then
+    S.peasants = S.turn
+    d = "No Good territory can be conquered this turn; conquests already under way are paused."
+  elseif k == "gondor" then
+    local cap = capitalOf(side)
+    if cap and S.terr[cap] and S.terr[cap].owner == side then S.terr[cap].stock = S.terr[cap].stock + 100; info.n = cap; d = NAMES[cap] .. " gains 100 RP."
+    else d = "Good holds no capital to receive the supplies." end
+  elseif k == "theoden" then
+    S.theoden = S.turn
+    d = "Every Good army has +1 Courage in battles this turn."
+  elseif k == "horses" then
+    local names = {}
+    for _, a in ipairs(readyArmies(side, isCavalry)) do
+      a.noMoveTurn, a.noMoveWhy = S.turn, "its horses are sick (Sick Horses)"
+      table.insert(names, pubName(a))
+    end
+    d = (#names > 0) and (table.concat(names, ", ") .. " cannot move this turn.") or "No cavalry-only army is affected."
+  elseif k == "eorl" then
+    local any = false
+    for _, n in ipairs(ownedBy(side)) do if S.terr[n].stock >= 100 then any = true end end
+    if any then ev.pending = "eorl"; d = "Good may spend 100 RP from one of its territories to celebrate (Turn tab)."
+    else d = "No Good territory has the 100 RP to spend on the feast." end
+  elseif k == "bread" then
+    local a = pick(readyArmies(side))
+    if a then
+      a.noMoveTurn, a.noMoveWhy, a.breadT = S.turn, "its Orcs are enraged by the bread (Maggoty Bread)", S.turn
+      info.army, info.n = a.id, a.loc
+      d = pubName(a) .. " refuses to move this turn, and has +2 Courage if it fights."
+    else d = "No army to feed." end
+  elseif k == "ilk" then
+    local a = pick(readyArmies(side))
+    if a then
+      info.army, info.n = a.id, a.loc
+      local r = d6(side, "Mordor Ilk")
+      if r >= 3 then d = pubName(a) .. " rolled " .. r .. ": the brawl dies down."
+      else a.damage = math.min(75, (a.damage or 0) + 25); d = pubName(a) .. " rolled " .. r .. ": 25% casualties (now -" .. a.damage .. "%)." end
+    else d = "No army to quarrel." end
+  elseif k == "dunland" then
+    S.dunland = S.turn
+    d = "Evil armies gain +50 RP from pillaging this turn; any that pillage have -1 Courage in battles this turn."
+  elseif k == "saruman" then
+    if #readyArmies("Good") > 0 then ev.pending = "saruman"; d = "Evil chooses one Good army that cannot move this turn (Turn tab)."
+    else d = "Good has no army to bewitch." end
+  elseif k == "goblinraid" then
+    local any, targets = false, false
+    for _, n in ipairs(ownedBy(side)) do if S.terr[n].stock >= 100 then any = true end end
+    for _, a in ipairs(readyArmies("Good")) do if S.terr[a.loc].owner == "Good" then targets = true end end
+    if any and targets then ev.pending = "goblinraid"; d = "Evil may pay the Goblins 100 RP and choose a Good army in Good land (Turn tab)."
+    elseif not any then d = "No Evil territory has the 100 RP the Goblins want."
+    else d = "No Good army stands in Good land for the Goblins to raid." end
   elseif k == "eclipse" then
     S.eclipse = { t = S.turn, used = false }
     d = "The first army Evil moves this turn gets +1 movement."
@@ -3552,12 +3844,51 @@ function hireMercs(side, n, name, leader, list)
   return true
 end
 
+-- Eorl's Birthday, Fell Speech of Saruman, Goblins Come: the side's choice
+function eventChoose(side, payN, armyId)
+  local e = S.events and S.events.t == S.turn and S.events[side]
+  if not e or not (e.pending == "eorl" or e.pending == "saruman" or e.pending == "goblinraid") then return "There's nothing to choose right now." end
+  payN = tonumber(payN)
+  local a = armyId and armyById(tonumber(armyId)) or nil
+  if e.pending == "eorl" or e.pending == "goblinraid" then
+    if not payN or not S.terr[payN] or S.terr[payN].owner ~= side then return "Choose one of your territories to pay from." end
+    if S.terr[payN].stock < 100 then return NAMES[payN] .. " doesn't have 100 RP." end
+  end
+  if e.pending == "saruman" or e.pending == "goblinraid" then
+    if not a or a.side ~= "Good" or a.status == "building" then return "Choose a Good army." end
+    if e.pending == "goblinraid" and S.terr[a.loc].owner ~= "Good" then return "The Goblins can only raid a Good army standing in a Good territory." end
+  end
+  e.info = e.info or {}
+  if e.pending == "eorl" then
+    S.terr[payN].stock = S.terr[payN].stock - 100
+    S.eorl = S.turn
+    e.info.n = payN
+    e.detail = "Good spent 100 RP from " .. NAMES[payN] .. " on the feast: every Good army has -2 Courage in battles this turn."
+  elseif e.pending == "saruman" then
+    a.noMoveTurn, a.noMoveWhy = S.turn, "Saruman's voice holds it (Fell Speech of Saruman)"
+    e.info.army, e.info.n = a.id, a.loc
+    e.detail = pubName(a) .. " at " .. NAMES[a.loc] .. " cannot move this turn."
+  else
+    S.terr[payN].stock = S.terr[payN].stock - 100
+    a.damage = math.min(75, (a.damage or 0) + 25)
+    e.info.army, e.info.n = a.id, a.loc
+    e.detail = "Evil paid the Goblins 100 RP from " .. NAMES[payN] .. ". They raided " .. pubName(a) .. " at " .. NAMES[a.loc] .. ": 25% casualties (now -" .. a.damage .. "%)."
+  end
+  e.pending = nil
+  eventRecord(side, e)
+  clog(side .. " event - " .. e.name .. ": " .. e.detail, nil, "armies")
+  return true
+end
+
 function declineEvent(side)
   local e = S.events and S.events.t == S.turn and S.events[side]
   if not e or not e.pending then return "Nothing to decide." end
   if e.pending == "troll" then
     local a = armyById(e.army)
     e.detail = (a and pubName(a) or "The army") .. " left the Troll hoard alone."
+  elseif e.pending == "eorl" then e.detail = "Good kept its RP; the birthday passed quietly."
+  elseif e.pending == "saruman" then e.detail = "Saruman held his tongue this turn."
+  elseif e.pending == "goblinraid" then e.detail = "Evil sent the Goblins away unpaid."
   else e.detail = "The mercenaries moved on." end
   e.pending = nil
   eventRecord(side, e)
@@ -11396,6 +11727,7 @@ function uiRun(player, arg)
   elseif a == "evmerc" then r = hireMercs(p1, numOf(f.evMercT), f.evMercName, f.evMercLeader, f.evMercList); say(pk, r, "Mercenaries hired.")
   elseif a == "evtroll" then r = raidTrollHoard(p1); say(pk, r, "The hoard was raided.")
   elseif a == "evno" then r = declineEvent(p1); say(pk, r, "Done.")
+  elseif a == "evpick" then r = eventChoose(p1, numOf(f.evPayT), idOf(f.evArmy) or numOf(f.evArmy)); say(pk, r, "Done.")
   elseif a == "evtog" then S.settings.randomEvents = (S.settings.randomEvents == false)
   elseif a == "dicetog" then S.settings.dice = (S.settings.dice == "digital") and "physical" or "digital"
   elseif a == "diceby" then S.settings.diceBy = S.settings.diceBy or {}; S.settings.diceBy[p1] = p2
@@ -11490,6 +11822,7 @@ function uiRun(player, arg)
   elseif a == "override" then S.settings.override = not S.settings.override
   elseif a == "start" then
     if u.confirm == "start" then
+      if f.theatre and f.theatre ~= "" then local okT = setTheatre(f.theatre, true); if okT ~= true then say(pk, okT); return end end
       S.settings.capGood = numOf(f.capGood) or S.settings.capGood
       S.settings.capEvil = numOf(f.capEvil) or S.settings.capEvil
       S.settings.startRP = tonumber(f.startRP or "") or S.settings.startRP
@@ -11517,7 +11850,7 @@ function uiRun(player, arg)
   elseif a == "canmarch" then local arm = armyById(p1); if arm then arm.canMarch = not arm.canMarch end
   elseif a == "dropmove" then S.settings.dropMove = not S.settings.dropMove
   elseif a == "drivespeed" then S.settings.driveSpeed = p1
-  elseif a == "theatre" then S.settings.theatre = p1
+  elseif a == "theatre" then r = setTheatre(p1); say(pk, r, "Theatre: " .. tostring(p1) .. ".")
   elseif a == "wagonface" then S.settings.wagonFace = not (S.settings.wagonFace ~= false)
   elseif a == "rebuildpieces" then
     local ok3, err = pcall(reconcileBuildings); say(pk, ok3 or tostring(err), "Building pieces rebuilt.")
@@ -11640,6 +11973,7 @@ function onLoad(saved)
   end
   math.randomseed(os.time())
   GP = self.getGUID() .. "/"
+  useTheatreMap("Eriador")
   S = newState()
   if saved and saved ~= "" then
     local ok, data = pcall(JSON.decode, saved)

@@ -384,7 +384,7 @@ a.rule:hover{border-color:var(--gold)}
 <canvas id="c"></canvas>
 <div class="labels" id="labels"></div>
 <div class="top">
-  <div class="brand">Eriador War Council<small id="turnline">Loading…</small><div id="warBar" hidden></div></div>
+  <div class="brand"><span id="brandName">Eriador War Council</span><small id="turnline">Loading…</small><div id="warBar" hidden></div></div>
   <div class="stages" id="stages"></div>
   <div class="tools">
     <div class="net-chip" id="netChip" hidden></div><div class="seg" title="Which side you are playing"><button id="asGood" class="g">Good</button><button id="asEvil" class="e">Evil</button></div>
@@ -461,14 +461,22 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=b52fe54366').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=668c45e0fb').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
 let acting = 'Good';
 const SAVE_KEY = 'eriador.campaign';
 let stateVer = 0;
-function refresh() { S = JSON.parse(luaCall('appState')); stateVer++; }
+function refresh() { S = JSON.parse(luaCall('appState')); stateVer++; mapCheck(); }
+// the campaign moved to a theatre with another board (a new campaign, a loaded file, the host's game): set that board out
+function mapCheck() {
+  if (typeof MAP_KEY === 'undefined' || !S || !S.mapKey || S.mapKey === MAP_KEY || mapCheck.going) return;
+  mapCheck.going = true;
+  try { toast(`Setting out the ${S.mapKey} map…`, 'roll'); } catch (e) {}
+  setTimeout(() => { try { localStorage.setItem(NET.role === 'guest' ? 'eriador.online' : SAVE_KEY, luaCall('appSave')); } catch (e) {} location.reload(); }, 600);
+}
+function theatreName() { return (S && S.settings && S.settings.theatre) || 'Eriador'; }
 const NET = window.__NET = { role: null, seat: null, code: '', peer: null, conn: null, status: 'off', v: 0, lastBy: null, hostSide: null,
   out: null, inflight: false, applying: false, fx: null, lastArg: '', retries: 0 };
 function persist() {
@@ -490,6 +498,7 @@ async function asWrite() {
   clearTimeout(AUTOSAVE.timer);
   if (AUTOSAVE.state !== 'on' || !AUTOSAVE.dir || !S) return;
   try {
+    AUTOSAVE.name = theatreName() + ' campaign.json';
     const fh = await AUTOSAVE.dir.getFileHandle(AUTOSAVE.name, { create: true });
     const w = await fh.createWritable();   // written beside the old file, then swapped in: the save is never half-written
     await w.write(luaCall('appSave')); await w.close();
@@ -647,13 +656,17 @@ function askThrow(side, n, why) {
 function throwDiceAsync(specs) { return new Promise(res => { throwDice(specs, null, res); }); }
 
 // ------------------------------------------------------------------ map data
-const MAP = await fetch('map.json').then(r => r.json()); tick();
+// each theatre has its own board: the campaign kept in this browser says which one to set out
+let BOOT_TH = 'Eriador';
+try { const sv = (/"guest"/.test(localStorage.getItem('eriador.net') || '') && localStorage.getItem('eriador.online')) || localStorage.getItem(SAVE_KEY); if (sv) BOOT_TH = ((JSON.parse(sv) || {}).settings || {}).theatre || 'Eriador'; } catch (e) {}
+const MAP_KEY = BOOT_TH === 'Rohan' ? 'Rohan' : 'Eriador', ASSET = MAP_KEY === 'Rohan' ? 'rohan/' : '';
+const MAP = await fetch(ASSET + 'map.json').then(r => r.json()); tick();
 const T = MAP.terr;
 function loadImg(src) { return new Promise((res, rej) => { const i = new Image(); i.onload = () => { tick(); res(i); }; i.onerror = rej; i.src = src; }); }
 function pixels(img) { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0); return { w: img.width, h: img.height, d: x.getImageData(0, 0, img.width, img.height).data }; }
-const [boardImg, hImg, tImg] = await Promise.all([loadImg('board.jpg'), loadImg('height.png'), loadImg('terr.png')]);
+const [boardImg, hImg, tImg] = await Promise.all([loadImg(ASSET + 'board.jpg'), loadImg(ASSET + 'height.png'), loadImg(ASSET + 'terr.png')]);
 const HM = pixels(hImg), TM = pixels(tImg);
-const BW = 150, BD = 150 * 1233 / 1536, RELIEF = 3.4;
+const BW = 150, BD = 150 * hImg.height / hImg.width, RELIEF = 3.4;
 function hAt(u, v) {
   const x = Math.min(HM.w - 1.001, Math.max(0, u * (HM.w - 1))), y = Math.min(HM.h - 1.001, Math.max(0, v * (HM.h - 1)));
   const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0, g = (xx, yy) => HM.d[(yy * HM.w + xx) * 4] / 255;
@@ -1370,7 +1383,7 @@ function renderLeft() {
   el.querySelectorAll('[data-bf]').forEach(x => x.oninput = x.onchange = () => { bForm[x.dataset.bf] = x.type === 'checkbox' ? x.checked : x.value; if (/^(atk|def|lost_\d+|in_\d+|win|out_\d+|ret_\d+)$/.test(x.dataset.bf)) renderLeft(); });
   const apply = el.querySelector('#bApply'); if (apply) apply.onclick = applyBattle;
   el.querySelectorAll('[data-ev]').forEach(x => x.onclick = () => {
-    const f = {}; for (const k of ['evMercT', 'evMercName', 'evMercLeader', 'evMercList']) if ($(k)) f[k] = $(k).value;
+    const f = {}; for (const k of ['evMercT', 'evMercName', 'evMercLeader', 'evMercList', 'evPayT', 'evArmy']) if ($(k)) f[k] = $(k).value;
     act(x.dataset.ev, f);
   });
   const bp = el.querySelector('#bPrio'); if (bp) bp.onclick = () => act('bprio', battleFields());
@@ -1992,6 +2005,8 @@ function turnPanel() {
           <div class="row"><button class="gold" ${ts.length ? '' : 'disabled'} data-ev="evmerc~${sd}">Hire them (${S.armyCost['400'][0]} RP)</button><button data-ev="evno~${sd}">Let them go</button></div></div>`;
       } else if (e.pending === 'troll' && mine) {
         h += `<div class="row" style="margin-top:6px"><button class="gold" data-ev="evtroll~${sd}">Raid the hoard (D6, 4+)</button><button data-ev="evno~${sd}">Leave it alone</button></div>`;
+      } else if (PICK_EVENTS[e.pending] && mine) {
+        h += `<div class="form" style="margin-top:6px">${pickEventForm(sd, e)}</div>`;
       } else if (e.pending) h += note(`Waiting for ${sd} to decide.`);
       h += `</div>`;
     }
@@ -2065,6 +2080,9 @@ function renderLedger() {
     if (sec.length || slog.length) h += `<h3>${acting}'s secret orders</h3>` + sec.map(s => `<div class="item"><span>${esc(s)}</span></div>`).join('') +
       (slog.length ? `<div style="color:var(--dim);font-size:13px;margin-top:6px">RECENT</div>` + slog.map(e => `<div class="item"><span><small style="color:var(--dim)">Turn ${e.t}</small> ${esc(e.m)}</span></div>`).join('') : '');
     // every special rule of this theatre, and whether the War Council applies it
+    if ((S.theatreRules || []).length) h += `<h3>Theatre rules · ${esc(theatreName())}${ruleLink('theatre')}</h3>` + S.theatreRules.map(r =>
+      `<div class="item" style="cursor:default"><span><b>${esc(r.name)}</b><br><span style="color:var(--dim);font-size:14px">${esc(r.text)}</span></span><span class="pill Neutral" title="The War Council applies this for you">Always on</span></div>`).join('') +
+      (S.ents && S.ents.status ? `<div style="color:var(--dim);font-size:13.5px;margin:4px 0 8px">The Ents: ${esc({ awake: 'awake and marching', home: 'gone home to Fangorn', fallen: 'fallen, they will not march again' }[S.ents.status] || S.ents.status)}.</div>` : '');
     h += `<h3>Special rules · ${esc(S.settings.theatre || 'Eriador')}${ruleLink('specials')}</h3>` + ['Good', 'Evil'].map(sd => (S.specials[sd] || []).map(r =>
       `<div class="item" style="cursor:default"><span><span class="pill ${sd}">${sd}</span><b>${esc(r.name)}</b><br><span style="color:var(--dim);font-size:14px">${esc(r.text)}</span></span>
        <span class="pill ${r.declare ? 'Good' : r.auto ? 'Neutral' : 'warn'}" title="${r.declare ? 'Use it from the This turn panel' : r.auto ? 'The War Council applies this for you' : 'Not automated: apply it at the table'}">${r.declare ? 'Declare' : r.auto ? 'Always on' : 'By hand'}</span></div>`).join('')).join('');
@@ -2275,8 +2293,33 @@ const EVENT_ART = {
   troll: '<path d="M14 30h36v20H14z" fill="#8a5a2a"/><path d="M14 30l4-8h28l4 8" fill="#a8743a"/><circle cx="32" cy="40" r="4" fill="#ffd27a"/><circle cx="22" cy="24" r="3" fill="#ffd27a"/><circle cx="42" cy="22" r="3" fill="#ffd27a"/>',
   rhudaur: '<g stroke="#cfd6e0" stroke-width="4" fill="none"><ellipse cx="20" cy="32" rx="9" ry="6"/><ellipse cx="44" cy="32" rx="9" ry="6"/></g><path d="M30 26l4 12" stroke="#b5402f" stroke-width="3"/>',
   craving: '<path d="M12 20h40l-4 10-6-4-4 12-6-10-6 10-4-12-6 4z" fill="#f4ead2"/><path d="M14 44c10 8 26 8 36 0" stroke="#b5402f" stroke-width="3" fill="none"/>',
+  peasants: '<path d="M32 8v48" stroke="#8a5a2a" stroke-width="4" stroke-linecap="round"/><path d="M20 10v12c0 6 24 6 24 0V10M32 10v14" stroke="#cfd6e0" stroke-width="4" fill="none" stroke-linecap="round"/>',
+  gondor: '<path d="M32 12v40M32 22l-12-8M32 22l12-8M32 32l-14-6M32 32l14-6M32 42l-10-4M32 42l10-4" stroke="#f4f1e8" stroke-width="3" stroke-linecap="round"/><g fill="#f4f1e8"><circle cx="24" cy="10" r="2"/><circle cx="32" cy="8" r="2"/><circle cx="40" cy="10" r="2"/></g>',
+  theoden: '<path d="M16 40l4-18 7 8 5-12 5 12 7-8 4 18z" fill="#9a9a7a" stroke="#5d5d45" stroke-width="2"/><rect x="16" y="40" width="32" height="6" fill="#5d5d45"/><path d="M14 18c8 6 28 6 36 0" stroke="#7a8a5a" stroke-width="3" fill="none" opacity=".8"/>',
+  horses: '<path d="M22 52l2-14-6-6 4-12 10-8 12 2 4 8-6 2-4-4-2 8 6 12-2 12z" fill="#a0826a" stroke="#5a4030" stroke-width="2"/><circle cx="40" cy="20" r="2" fill="#2a1a10"/><path d="M44 30c4 2 6 6 4 10" stroke="#8ab04a" stroke-width="3" fill="none"/>',
+  eorl: '<path d="M14 30c10-2 22-10 30-18l4 4c-4 12-6 22-4 30l-6 2c-4-8-12-12-24-12z" fill="#e6c27a" stroke="#8a6a34" stroke-width="2"/><path d="M48 16l6-6" stroke="#8a6a34" stroke-width="3"/><circle cx="20" cy="48" r="3" fill="#f2cc66"/><circle cx="30" cy="52" r="2" fill="#f2cc66"/><circle cx="12" cy="44" r="2" fill="#f2cc66"/>',
+  bread: '<path d="M12 36c0-10 10-16 20-16s20 6 20 16v8H12z" fill="#c89a5a" stroke="#7a5a2a" stroke-width="2"/><g fill="#e8e2c8"><ellipse cx="22" cy="32" rx="3" ry="1.5"/><ellipse cx="36" cy="28" rx="3" ry="1.5"/><ellipse cx="42" cy="38" rx="3" ry="1.5"/><ellipse cx="28" cy="40" rx="3" ry="1.5"/></g>',
+  ilk: '<path d="M14 14l36 36M50 14L14 50" stroke="#cfd6e0" stroke-width="5" stroke-linecap="round"/><path d="M12 22l10-10M42 12l10 10" stroke="#3a2a1a" stroke-width="5" stroke-linecap="round"/><circle cx="32" cy="32" r="5" fill="#b5402f"/>',
+  dunland: '<path d="M30 10v44" stroke="#8a5a2a" stroke-width="5" stroke-linecap="round"/><path d="M30 14c10-2 18 4 20 14-8-2-14 0-20 4z" fill="#cfd6e0" stroke="#7a8696" stroke-width="2"/><path d="M14 46c6-4 12-4 16 0" stroke="#b5402f" stroke-width="3" fill="none"/>',
+  saruman: '<path d="M20 54l4-30c2-8 14-8 16 0l4 30z" fill="#f4f1e8"/><circle cx="32" cy="18" r="7" fill="#e8dcc8"/><path d="M42 30c6-2 10-6 12-10M44 36c6 0 10-2 12-4" stroke="#c8b8ff" stroke-width="2.5" fill="none" stroke-linecap="round"/><path d="M46 12v44" stroke="#2a2a2a" stroke-width="3"/>',
+  goblinraid: '<path d="M14 26c4-10 12-14 18-14s14 4 18 14l8-4-4 10c0 10-10 18-22 18S14 42 14 32l-8-10z" fill="#7a8a4a" stroke="#3a4a1a" stroke-width="2"/><circle cx="25" cy="30" r="4" fill="#ffd27a"/><circle cx="39" cy="30" r="4" fill="#ffd27a"/><path d="M24 42l4-3 4 3 4-3 4 3" stroke="#f4ead2" stroke-width="2" fill="none"/>',
   eclipse: '<circle cx="32" cy="32" r="18" fill="#ffb347"/><circle cx="36" cy="30" r="17" fill="#120d08"/><circle cx="32" cy="32" r="22" fill="none" stroke="#ff7a3a" stroke-width="1.5" opacity=".7"/>',
 };
+// Rohan's events that ask a side to choose: pay from a territory, pick an army, or both
+const PICK_EVENTS = {
+  eorl: { pay: true, go: 'Celebrate (100 RP)', no: 'Keep the RP' },
+  saruman: { army: (a) => a.side === 'Good', go: 'Silence that army', no: 'Hold his tongue' },
+  goblinraid: { pay: true, army: (a) => a.side === 'Good' && S.terr[a.loc - 1].owner === 'Good', go: 'Pay the Goblins (100 RP)', no: 'Send them away' },
+};
+function pickEventForm(sd, e) {
+  const P = PICK_EVENTS[e.pending];
+  const pays = P.pay ? S.terr.map((t, i) => i + 1).filter(n => S.terr[n - 1].owner === sd && (S.terr[n - 1].stock || 0) >= 100) : [];
+  const arms = P.army ? S.armies.filter(a => a.status !== 'building' && P.army(a)) : [];
+  const ok = (!P.pay || pays.length) && (!P.army || arms.length);
+  return (P.pay ? (pays.length ? `<label>Pay from <select id="evPayT">${pays.map(n => opt(n, tname(n) + ' (' + S.terr[n - 1].stock + ' RP)')).join('')}</select></label>` : note('No territory of yours has 100 RP.', true)) : '') +
+    (P.army ? (arms.length ? `<label>Army <select id="evArmy">${arms.map(a => opt(a.id, ((a.pub && a.pub[sd]) || a.name) + ' at ' + T[a.loc].name)).join('')}</select></label>` : note('No army to choose.', true)) : '') +
+    `<div class="row"><button class="gold" ${ok ? '' : 'disabled'} data-ev="evpick~${sd}">${P.go}</button><button data-ev="evno~${sd}">${P.no}</button></div>`;
+}
 function eventCard(sd, e, i) {
   const mine = sd === acting;
   let choice = '';
@@ -2285,6 +2328,7 @@ function eventCard(sd, e, i) {
     choice = `<div class="ec-choice">${ts.length ? `<select id="evMercT">${ts.map(n => opt(tname(n), tname(n))).join('')}</select><input id="evMercName" placeholder="Army name (optional)"><div class="row"><input id="evMercLeader" placeholder="Leader"><input id="evMercList" placeholder="List"></div>` : '<small>No territory of yours has the RP.</small>'}
       <div class="row"><button class="gold" ${ts.length ? '' : 'disabled'} data-ev="evmerc~${sd}">Hire them</button><button data-ev="evno~${sd}">Let them go</button></div></div>`;
   } else if (e.pending === 'troll' && mine) choice = `<div class="ec-choice"><div class="row"><button class="gold" data-ev="evtroll~${sd}">Raid the hoard (4+)</button><button data-ev="evno~${sd}">Leave it</button></div></div>`;
+  else if (PICK_EVENTS[e.pending] && mine) choice = `<div class="ec-choice">${pickEventForm(sd, e)}</div>`;
   else if (e.pending) choice = `<div class="ec-choice"><small>Waiting for ${sd} to decide.</small></div>`;
   return `<div class="ecard ${sd}" style="animation-delay:${0.25 + i * 0.35}s"><div class="ec-crest">${CREST[sd]}</div>
     <div class="ec-art">${G(EVENT_ART[e.key] || EVENT_ART.dunedain)}</div>
@@ -2360,7 +2404,7 @@ function showPopups() {
 }
 function wirePopup() {
   $('popup').querySelectorAll('[data-ev]').forEach(x => x.onclick = () => {
-    const f = {}; for (const k of ['evMercT', 'evMercName', 'evMercLeader', 'evMercList']) if ($(k)) f[k] = $(k).value;
+    const f = {}; for (const k of ['evMercT', 'evMercName', 'evMercLeader', 'evMercList', 'evPayT', 'evArmy']) if ($(k)) f[k] = $(k).value;
     $('popup').hidden = true; act(x.dataset.ev, f);
   });
   $('popup').querySelectorAll('[data-pop]').forEach(b => b.onclick = () => {
@@ -2429,10 +2473,13 @@ async function download(name, text, type = 'application/json') {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
-const RULE_PAGES = { turn: 5, armies: 6, battles: 9, movement: 8, agents: 11, resources: 12, buildings: 13, conquest: 14, actions: 14, specials: 15, events: 18, campaigns: 3, map: 4 };
+const RULE_PAGES_ALL = { turn: 6, armies: 7, battles: 10, movement: 9, agents: 12, resources: 13, buildings: 14, conquest: 15, actions: 15, specials: 16, events: 20, campaigns: 3, map: 4, theatre: 18 };
+// some pages belong to the theatre being played
+const RULE_PAGES_BY = { Rohan: { specials: 17, events: 22, map: 5, theatre: 18 }, Gondor: { specials: 19 } };
+const RULE_PAGES = new Proxy(RULE_PAGES_ALL, { get: (o, k) => ((RULE_PAGES_BY[(typeof S !== 'undefined' && S && S.settings && S.settings.theatre) || 'Eriador'] || {})[k]) || o[k] });
 
 // The rulebook opens inside the page: the hosted page can't open new tabs, so every rules link lands here.
-const RULE_N = 19;
+const RULE_N = 23;
 function openRulebook(page = 1) {
   const el = $('rulebook');
   if (!el.dataset.built) {
@@ -2518,7 +2565,7 @@ function renderSettings() {
     }
     h += `<h3>Start a new campaign</h3><div class="form"><div class="row"><label>Theatre <select id="nTheatre">${['Eriador', 'Rohan', 'Gondor'].map(t => opt(t, t, (st.theatre || 'Eriador') === t)).join('')}</select></label>
       <label>Starting RP <input id="nRP" type="number" value="${st.startRP || 400}" style="width:90px"></label></div>
-      <div class="row"><label>Good capital <select id="nCapG">${terrOpts(st.capGood)}</select></label></div><div class="row"><label>Evil capital <select id="nCapE">${terrOpts(st.capEvil)}</select></label></div>
+      <div class="row"><label>Good capital <select id="nCapG">${capOpts(st.theatre || 'Eriador', st.capGood)}</select></label></div><div class="row"><label>Evil capital <select id="nCapE">${capOpts(st.theatre || 'Eriador', st.capEvil)}</select></label></div>
       <button data-twice2="newcampaign" class="${S.started ? '' : 'gold'}">Start a new campaign${S.started ? ' (wipes this one)' : ''}</button></div>`;
   } else if (setTab === 'Online') h += onlineTab();
   else if (setTab === 'Reports') h += reportsTab();
@@ -2531,6 +2578,8 @@ function renderSettings() {
       <div class="row" style="margin-top:8px"><button class="gold" data-c="copyweb">Copy the code</button><button data-c="dlweb">Download it</button></div>`;
   }
   const el = $('setBody'); el.innerHTML = h; wireOnline(el);
+  const nth = $('nTheatre');
+  if (nth) nth.onchange = () => { const th = nth.value, m = (S.theatreMaps || {})[th === 'Rohan' ? 'Rohan' : 'Eriador'] || {}; $('nCapG').innerHTML = capOpts(th, m.capGood); $('nCapE').innerHTML = capOpts(th, m.capEvil); };
   const oc = $('openChron'); if (oc) oc.onclick = () => { chronicleOn = true; lsSet('eriador.chronicleOn', '1'); writeChronicle(); };
   el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => {
     quality = b.dataset.q; try { localStorage.setItem('eriador.quality', quality); } catch (e) {}
@@ -2561,8 +2610,7 @@ function renderSettings() {
     if (!(twiceAsk.k === k && Date.now() - twiceAsk.t < 4000)) { twiceAsk = { k, t: Date.now() }; toast('Press it again to confirm.', 'roll'); return; }
     twiceAsk = {};
     if (k === 'newcampaign') {
-      act('theatre~' + $('nTheatre').value, null, true);
-      const f = { capGood: $('nCapG').value, capEvil: $('nCapE').value, startRP: $('nRP').value };
+      const f = { theatre: $('nTheatre').value, capGood: $('nCapG').value, capEvil: $('nCapE').value, startRP: $('nRP').value };
       act('start', f, true); act('start', f); closeSettings();
     } else { act(k, null, true); act(k); renderSettings(); }
   });
@@ -2574,7 +2622,7 @@ function renderSettings() {
   });
   el.querySelectorAll('[data-c]').forEach(b => b.onclick = () => {
     const k = b.dataset.c;
-    if (k === 'export') download(`Eriador campaign - turn ${S.turn}.json`, luaCall('appSave'));
+    if (k === 'export') download(`${theatreName()} campaign - turn ${S.turn}.json`, luaCall('appSave'));
     else if (k === 'load') $('file').click();
     else if (k === 'unend') { act('unendwar'); winnerSeen = false; renderSettings(); }
     else if (k === 'summary') { closeSettings(); showSummary(); }
@@ -2584,6 +2632,12 @@ function renderSettings() {
   wireReports(el);
 }
 function closeSettings() { $('settings').hidden = true; }
+// territory choices for a theatre's map (the new-campaign form can pick a theatre with another board)
+function capOpts(th, sel) {
+  const key = th === 'Rohan' ? 'Rohan' : 'Eriador', m = (S.theatreMaps || {})[key];
+  const names = (key === S.mapKey || !m) ? Object.keys(T).map(n => T[n].name) : m.names;
+  return names.map((nm, i) => opt((i + 1) + ' · ' + nm, (i + 1) + ' · ' + nm, i + 1 === +sel)).join('');
+}
 function theatreInfo() { const th = S.settings.theatre || 'Eriador', al = S.alliance; return `Lists and alliances: Good allies with ${al.Good ? al.Good.list : '?'}, Evil with ${al.Evil ? al.Evil.list : '?'}.`; }
 
 // battle reports, written after a battle is fought
@@ -4033,7 +4087,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=b52fe54366').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=668c45e0fb').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4241,7 +4295,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=b52fe54366').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=668c45e0fb').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4359,6 +4413,7 @@ function isNearTray() { return controls.target.distanceTo(TRAY) < 28 && camera.p
 let saved = null; try { saved = (/"guest"/.test(localStorage.getItem('eriador.net') || '') && localStorage.getItem('eriador.online')) || localStorage.getItem(SAVE_KEY); } catch (e) {}
 const initial = saved || '';
 luaCall('appLoad', initial); refresh(); tick();
+document.title = theatreName() + ' War Council'; $('brandName').textContent = theatreName() + ' War Council';
 markActing(); await syncScene(); renderUI(); setTimeout(() => { try { showPopups(); } catch (e) {} }, 1200);
 $('loading').style.opacity = 0; setTimeout(() => $('loading').remove(), 600);
 // ------------------------------------------------------------------ online: two players, one campaign, each on their own computer
@@ -4637,7 +4692,7 @@ function wireOnline(el) {
 })();
 window.__net = NET;
 
-window.__app = { openDicePicker: (s) => openDicePicker(s), openFigPicker: (o) => openFigPicker(o), setFigure: (i, f) => setFigure(i, f), versusSplash: (n) => versusSplash(n, true), resultCeremony: (b) => resultCeremony(b), LEADERS: () => LEADERS, openBattle: (n) => openBattle(n), startAmbience: () => startAmbience(), uiSound: (k) => uiSound(k), ambienceTick: () => ambienceTick(), victoryScreen: () => victoryScreen(), AMB, armyHover: (a) => armyHover(a), historyHtml: (n) => historyHtml(n), fadeOwners: (c) => fadeOwners(c), turnCinematic: () => turnCinematic(), lootCart: (m) => lootCart(m), shots, syncRoads: () => { roadKey = ''; syncRoads(); }, showRoute: (p) => showRoute(p), pathTo: (a, b) => pathTo(a, b), drawWear: () => drawOverlay(), driving, syncScene, movePreview: (d, n) => movePreview(d, n), todoList: () => todoList(), startRecap: (x) => startRecap(x), battleAftermath: (b) => battleAftermath(b), captureSweep: (n, o) => captureSweep(n, o), keysHeld, onMove: (e) => onMove(e), draw: { start: (id) => startRouteDraw(S.agents.find(g => g.id === id)), add: (n) => drawAdd(n), close: () => drawClose(), finish: () => drawFinish(), state: () => routeDraw && { path: routeDraw.path, acts: routeDraw.acts } }, fx: () => ({ glow: GLOW.list.length, smoke: SMOKE.list.length, lasting: [...lasting.keys()] }), labelsShown: () => [...LABELS.values()].filter(e => e.style.display !== 'none').length, cards: async (id) => Promise.all(JSON.parse(luaCall('appCards', id)).map(c => cardURL(cardSrc(c)))), reachSize: () => reach ? reach.all.size : 0, openLedger, diceTop: () => shown.map(d => d.m.material[upFace(d.m.quaternion)].userData.v), holdInset: () => { insetUntil = Infinity; }, dice: () => ({ insetUntil, now: performance.now(), shown: shown.length, replay: !!replay, frame: !$('insetFrame').hidden }), select, renderUI, act: (a, f) => act(a, f), get S() { return S; }, things, camera, controls, toWorld, T, luaCall };
+window.__app = { openSettings: (t) => openSettings(t), luaRun: (c) => luaRun(c, "dbg"), openDicePicker: (s) => openDicePicker(s), openFigPicker: (o) => openFigPicker(o), setFigure: (i, f) => setFigure(i, f), versusSplash: (n) => versusSplash(n, true), resultCeremony: (b) => resultCeremony(b), LEADERS: () => LEADERS, openBattle: (n) => openBattle(n), startAmbience: () => startAmbience(), uiSound: (k) => uiSound(k), ambienceTick: () => ambienceTick(), victoryScreen: () => victoryScreen(), AMB, armyHover: (a) => armyHover(a), historyHtml: (n) => historyHtml(n), fadeOwners: (c) => fadeOwners(c), turnCinematic: () => turnCinematic(), lootCart: (m) => lootCart(m), shots, syncRoads: () => { roadKey = ''; syncRoads(); }, showRoute: (p) => showRoute(p), pathTo: (a, b) => pathTo(a, b), drawWear: () => drawOverlay(), driving, syncScene, movePreview: (d, n) => movePreview(d, n), todoList: () => todoList(), startRecap: (x) => startRecap(x), battleAftermath: (b) => battleAftermath(b), captureSweep: (n, o) => captureSweep(n, o), keysHeld, onMove: (e) => onMove(e), draw: { start: (id) => startRouteDraw(S.agents.find(g => g.id === id)), add: (n) => drawAdd(n), close: () => drawClose(), finish: () => drawFinish(), state: () => routeDraw && { path: routeDraw.path, acts: routeDraw.acts } }, fx: () => ({ glow: GLOW.list.length, smoke: SMOKE.list.length, lasting: [...lasting.keys()] }), labelsShown: () => [...LABELS.values()].filter(e => e.style.display !== 'none').length, cards: async (id) => Promise.all(JSON.parse(luaCall('appCards', id)).map(c => cardURL(cardSrc(c)))), reachSize: () => reach ? reach.all.size : 0, openLedger, diceTop: () => shown.map(d => d.m.material[upFace(d.m.quaternion)].userData.v), holdInset: () => { insetUntil = Infinity; }, dice: () => ({ insetUntil, now: performance.now(), shown: shown.length, replay: !!replay, frame: !$('insetFrame').hidden }), select, renderUI, act: (a, f) => act(a, f), get S() { return S; }, things, camera, controls, toWorld, T, luaCall };
 </script>
 
 </body></html>
