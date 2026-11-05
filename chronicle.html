@@ -3430,7 +3430,16 @@ $("saveImg").addEventListener("click", async () => {
   try {
     await document.fonts.ready;
     const node = $("sheet");
-    const canvas = await html2canvas(node, { scale: 2, backgroundColor: "#f1e4c4", useCORS: true, width: node.offsetWidth, height: node.offsetHeight });
+    // the copy that's drawn: decorations that can shrink to nothing (which html2canvas can't paint) are made solid or left out
+    const tidy = (plain) => (doc) => {
+      const st = doc.createElement("style");
+      st.textContent = ".orn::before,.orn::after{background:#8c6a26!important;min-width:1px}" + (plain ? "*,*::before,*::after{background-image:none!important}" : "");
+      doc.head.appendChild(st);
+      doc.querySelectorAll("#sheet *").forEach((el) => { const r = el.getBoundingClientRect(); if ((r.width < 1 || r.height < 1) && doc.defaultView.getComputedStyle(el).backgroundImage !== "none") el.style.backgroundImage = "none"; });
+    };
+    const opts = (plain) => ({ scale: 2, backgroundColor: "#f1e4c4", useCORS: true, width: node.offsetWidth, height: node.offsetHeight, onclone: tidy(plain) });
+    let canvas;
+    try { canvas = await html2canvas(node, opts(false)); } catch (e1) { console.warn(e1); canvas = await html2canvas(node, opts(true)); }
     const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
     const title = (node.querySelector("h2")?.textContent || "Battle report").replace(/[^\w \-']/g, "").trim() || "Battle report";
     if (downloads) await downloads.save({ filename: title + ".png", data: blob });
