@@ -379,6 +379,21 @@ a.rule:hover{border-color:var(--gold)}
   color:var(--gold);font-size:22px;z-index:4}
 @media (max-width:760px){ .stages{display:none} .turnbox{top:calc(56px + env(safe-area-inset-top,0px))} .left{display:none} }
 @media (prefers-reduced-motion:reduce){ .toast{animation:none} }
+#tour{position:fixed;inset:0;z-index:1000}
+#tour .t-block{position:absolute;inset:0}
+#tour .t-spot{position:absolute;border-radius:10px;box-shadow:0 0 0 9999px rgba(8,6,4,.62);outline:2px solid #e3b75a;outline-offset:3px;transition:all .28s ease;pointer-events:none}
+#tour .t-spot.none{box-shadow:0 0 0 9999px rgba(8,6,4,.62);outline:none;width:0;height:0}
+#tour .t-card{position:absolute;width:min(380px,calc(100vw - 32px));background:#f3e7c9;color:#2a1c10;border-radius:12px;padding:16px 18px 14px;box-shadow:0 12px 40px rgba(0,0,0,.55);font-size:15px;line-height:1.45;transition:top .28s ease,left .28s ease}
+#tour .t-card h4{margin:0 0 6px;font-family:'Cinzel',serif;font-size:19px;color:#4a2c12}
+#tour .t-card p{margin:0 0 8px}
+#tour .t-card ul{margin:0 0 8px;padding-left:18px}
+#tour .t-card li{margin:2px 0}
+#tour .t-card kbd{background:#e2d2ab;border:1px solid #b39a6a;border-radius:4px;padding:0 5px;font-size:12.5px}
+#tour .t-foot{display:flex;align-items:center;gap:8px;margin-top:10px}
+#tour .t-foot .t-n{color:#7a6446;font-size:13px;margin-right:auto}
+#tour .t-foot button{border:1px solid #8a6a44;background:#efe0bd;color:#3a2412;border-radius:8px;padding:6px 12px;font:inherit;font-size:14px;cursor:pointer}
+#tour .t-foot button.gold{background:#c9902f;border-color:#8a5e1a;color:#fff8e6;font-weight:600}
+#tour .t-skip{position:absolute;top:10px;right:12px;background:none;border:none;color:#7a6446;font-size:13px;cursor:pointer;text-decoration:underline}
 </style>
 
 <canvas id="c"></canvas>
@@ -461,7 +476,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=4dfd91a7c8').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=ea974eec2e').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -2586,7 +2601,9 @@ function renderSettings() {
     h += `<h3>Start a new campaign</h3><div class="form"><div class="row"><label>Theatre <select id="nTheatre">${['Eriador', 'Rohan', 'Gondor'].map(t => opt(t, t, (st.theatre || 'Eriador') === t)).join('')}</select></label>
       <label>Starting RP <input id="nRP" type="number" value="${st.startRP || 400}" style="width:90px"></label></div>
       <div class="row"><label>Good capital <select id="nCapG">${capOpts(st.theatre || 'Eriador', st.capGood)}</select></label></div><div class="row"><label>Evil capital <select id="nCapE">${capOpts(st.theatre || 'Eriador', st.capEvil)}</select></label></div>
-      <button data-twice2="newcampaign" class="${S.started ? '' : 'gold'}">Start a new campaign${S.started ? ' (wipes this one)' : ''}</button></div>`;
+      <div class="row"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="nTour" ${tourWanted() ? 'checked' : ''}> Show the tour of the War Council once the campaign starts</label></div>
+      <button data-twice2="newcampaign" class="${S.started ? '' : 'gold'}">Start a new campaign${S.started ? ' (wipes this one)' : ''}</button></div>
+      <h3>The tour</h3><p class="hint">A walk through the controls, the turn and the settings. Skip it whenever you like.</p><div class="row"><button id="tourBtn">Take the tour</button></div>`;
   } else if (setTab === 'Online') h += onlineTab();
   else if (setTab === 'Reports') h += reportsTab();
   else if (setTab === 'Chronicle') {
@@ -2598,6 +2615,7 @@ function renderSettings() {
       <div class="row" style="margin-top:8px"><button class="gold" data-c="copyweb">Copy the code</button><button data-c="dlweb">Download it</button></div>`;
   }
   const el = $('setBody'); el.innerHTML = h; wireOnline(el);
+  if ($('tourBtn')) $('tourBtn').onclick = () => { closeSettings(); startTour(); };
   const nth = $('nTheatre');
   if (nth) nth.onchange = () => { const th = nth.value, m = (S.theatreMaps || {})[(th === 'Rohan' || th === 'Gondor') ? th : 'Eriador'] || {}; $('nCapG').innerHTML = capOpts(th, m.capGood); $('nCapE').innerHTML = capOpts(th, m.capEvil); };
   const oc = $('openChron'); if (oc) oc.onclick = () => { chronicleOn = true; lsSet('eriador.chronicleOn', '1'); writeChronicle(); };
@@ -2631,7 +2649,10 @@ function renderSettings() {
     twiceAsk = {};
     if (k === 'newcampaign') {
       const f = { theatre: $('nTheatre').value, capGood: $('nCapG').value, capEvil: $('nCapE').value, startRP: $('nRP').value };
+      const wantTour = $('nTour') ? $('nTour').checked : false;
+      try { localStorage.setItem('eriador.tourOff', wantTour ? '' : '1'); if (wantTour) localStorage.setItem('eriador.tour', '1'); else localStorage.removeItem('eriador.tour'); } catch (e) {}
       act('start', f, true); act('start', f); closeSettings();
+      if (wantTour) setTimeout(() => { if (!mapCheck.going) startTour(); }, 900);   // a new theatre reloads the page first; the tour opens after
     } else { act(k, null, true); act(k); renderSettings(); }
   });
   el.querySelectorAll('[data-restore]').forEach(b => b.onclick = () => {
@@ -4107,7 +4128,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=4dfd91a7c8').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=ea974eec2e').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4315,7 +4336,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=4dfd91a7c8').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=ea974eec2e').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4429,6 +4450,92 @@ renderer.setAnimationLoop((now) => {
 });
 function isNearTray() { return controls.target.distanceTo(TRAY) < 28 && camera.position.distanceTo(TRAY) < 46; }
 
+// ------------------------------------------------------------------ the tour: controls, the turn, the settings (skippable)
+function tourWanted() { try { return localStorage.getItem('eriador.tourOff') !== '1'; } catch (e) { return true; } }
+const TOUR = [
+  { title: 'Welcome to the War Council', text: () => `<p>This table runs your ${esc(theatreName())} campaign: the map, the turn, armies, agents, wagons, buildings, battles and random events. You play your games of Middle-earth on the tabletop; the War Council keeps the score.</p><p>This tour takes a couple of minutes. <b>Skip</b> it whenever you like, and take it again from <b>Settings → Campaign</b>.</p>` },
+  { el: '.brand', title: 'Where the campaign stands', text: () => `<p>The campaign's name, the turn, the stage and the season.</p><p>The bar underneath counts the territories each side holds: green for Good, red for Evil.</p>` },
+  { el: '#stages', title: 'The six stages of a turn', text: () => `<ul><li><b>Priority</b>: both sides roll; the winner chooses who acts first. Random events are rolled here.</li><li><b>Logistics</b>: move armies, agents and supply wagons.</li><li><b>Building</b>: raise armies, recruit agents, build.</li><li><b>Battle</b>: fight the battles on the tabletop and enter the results.</li><li><b>Retreat</b>: losers fall back.</li><li><b>End</b>: income, conquest and upkeep.</li></ul>` },
+  { el: '#turnbox', title: 'What to do now', text: () => `<p>This bar always says what the stage needs from you. When you are finished, press its gold button (or <kbd>Space</kbd>) to move on.</p><p>With <b>Ready check</b> on (Settings → Table), the stage moves on only once both sides have pressed Done.</p>` },
+  { el: '.tools .seg', title: 'Your side', text: () => `<p>Choose whether you are acting as <b>Good</b> or <b>Evil</b>. With <b>Hidden information</b> on, each side only sees what it knows of the other, so hand over the seat when the other player takes their turn.</p><p>Playing online, each of you holds one side on your own computer.</p>` },
+  { el: 'canvas', rect: () => ({ left: innerWidth * 0.3, top: innerHeight * 0.25, width: innerWidth * 0.4, height: innerHeight * 0.45 }), title: 'Moving around the map', text: () => `<ul><li><b>Right-drag</b> to turn the view, <b>scroll</b> to zoom.</li><li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or the arrow keys pan the map; <kbd>Q</kbd> <kbd>E</kbd> turn it; <kbd>+</kbd> <kbd>−</kbd> zoom.</li><li><b>Click</b> a territory or a piece to see it; hover for a quick look.</li><li>Press <kbd>?</kbd> for all the keyboard shortcuts.</li></ul>` },
+  { el: '#card', before: () => { try { select({ terr: S.settings.capGood }); renderUI(); } catch (e) {} }, leave: () => { try { select(null); renderUI(); } catch (e) {} },
+    title: 'The panel', text: () => `<p>Clicking something opens its panel here. A territory shows its owner, RP stock, income and buildings, and is where you build, recruit and raise armies.</p><p>An army's panel shows its list, supplies and orders. The small <b>Rules p.</b> tags open the rulebook at the right page.</p>` },
+  { el: 'canvas', rect: () => ({ left: innerWidth * 0.3, top: innerHeight * 0.25, width: innerWidth * 0.4, height: innerHeight * 0.45 }), title: 'Moving your pieces', text: () => `<p>In <b>Logistics</b>, drag an army, agent or wagon model across the map. While a piece is selected, the territories it can reach glow; a brighter edge means it can only get there with a Heroic March.</p><p>Armies need supplies outside friendly land; wagons carry RP along their routes.${(S.theatreRules || []).some(r => r.key === 'anduin') ? ' In Gondor, armies on the Anduin or the sea can also sail from their panel (<b>By water</b>).' : ''}</p>` },
+  { el: '#left', title: 'This turn', text: () => `<p>The turn's news: the priority roll, both sides' random events (with any choices they ask for), what still needs doing, and the battles to fight.</p>` },
+  { el: '#bUndo', title: 'Undo', text: () => `<p>Takes back the last action. <kbd>Ctrl</kbd> <kbd>Z</kbd> does the same.</p>` },
+  { el: '#bLedger', title: 'The ledger', text: () => `<p>Everything in one place: <b>Overview</b> (forces, income, special rules${(S.theatreRules || []).length ? ' and the ' + esc(theatreName()) + ' theatre rules' : ''}), <b>Territories</b>, <b>Armies</b>, <b>Agents</b>, <b>Wagons</b>, <b>Battles</b> and <b>History</b>.</p>` },
+  { el: '#bRules', title: 'The rulebook', text: () => `<p>The full campaign rules${S.settings.theatre && S.settings.theatre !== 'Eriador' ? ', including the ' + esc(theatreName()) + ' map, theatre rules and event tables' : ''}.</p>` },
+  { el: '#bLog', title: 'The log', text: () => `<p>Every move, roll, battle and conquest, turn by turn.</p>` },
+  { el: '#bDice', title: 'Dice', text: () => `<p>Throws two dice in the tray beside the board, for anything the table needs. When the War Council asks for a roll, press <kbd>R</kbd> or throw from the bar that appears.</p>` },
+  { el: '#bMusic', title: 'Music', text: () => `<p>Turns the music on or off. Add your own tracks in Settings → Music.</p>` },
+  { el: '#setBody', before: () => openSettings('Table'), title: 'Settings: Table', text: () => `<p>The house rules for this table: ready checks, hidden information, random events, dispatches and stage banners; who throws the dice and which set; how fast pieces travel; and the graphics quality for this computer.</p>` },
+  { el: '#setBody', before: () => openSettings('Online'), title: 'Settings: Online', text: () => `<p>Play with a friend on their own computer: one of you hosts and shares the game code, the other joins with it. No accounts.</p>` },
+  { el: '#setBody', before: () => openSettings('Campaign'), title: 'Settings: Campaign', text: () => `<p><b>Save and load</b>: download the campaign as a file, or load one. Turn on <b>auto-save</b> to keep a single campaign file in a folder you choose, overwritten as you play.</p><p>Here too: turn backups, ending the campaign, and starting a new one.</p>` },
+  { el: '#setBody', before: () => openSettings('Reports'), title: 'Settings: Reports', text: () => `<p>Write up each battle you fight: the scenario, the forces, the result, the hero of the battle, the casualties and the story. Add screenshots too. The reports appear in the Chronicle.</p>` },
+  { el: '#setBody', before: () => openSettings('Chronicle'), leave: () => closeSettings(), title: 'Settings: Chronicle', text: () => `<p>The Chronicle tells the story of the campaign turn by turn: the map, battles, armies and their leaders. You can replay it, save it as an image or a video, and share it.</p>` },
+  { el: '#turnbox', title: 'Ready', text: () => S.started && S.turn <= 1 && S.stage <= 1 ? `<p>That's the tour. Roll for priority to begin turn 1.</p><p>Take it again any time from <b>Settings → Campaign</b>.</p>` : `<p>That's the tour. Take it again any time from <b>Settings → Campaign</b>.</p>` },
+];
+let tourAt = -1;
+function startTour() {
+  try { localStorage.removeItem('eriador.tour'); } catch (e) {}
+  if ($('tour')) $('tour').remove();
+  const t = document.createElement('div'); t.id = 'tour';
+  t.innerHTML = `<div class="t-block"></div><div class="t-spot none"></div><div class="t-card"></div>`;
+  document.body.appendChild(t);
+  t.querySelector('.t-block').onclick = (e) => e.stopPropagation();
+  document.addEventListener('keydown', tourKeys, true);
+  tourAt = -1; tourGo(0);
+}
+function tourKeys(e) {
+  if (!$('tour')) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endTour(); }
+  else if (e.key === 'ArrowRight' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); tourGo(tourAt + 1); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); tourGo(tourAt - 1); }
+  else e.stopPropagation();
+}
+function endTour() {
+  const st = TOUR[tourAt]; if (st && st.leave) try { st.leave(); } catch (e) {}
+  if ($('settings') && !$('settings').hidden) closeSettings();
+  document.removeEventListener('keydown', tourKeys, true);
+  if ($('tour')) $('tour').remove();
+  tourAt = -1;
+}
+function tourGo(i) {
+  if (i >= TOUR.length) return endTour();
+  if (i < 0) return;
+  const prev = TOUR[tourAt]; if (prev && prev.leave && tourAt !== i) try { prev.leave(); } catch (e) {}
+  if (prev && prev.before && String(prev.before).includes('openSettings') && !(TOUR[i].before && String(TOUR[i].before).includes('openSettings'))) closeSettings();
+  tourAt = i;
+  const st = TOUR[i];
+  if (st.before) try { st.before(); } catch (e) {}
+  setTimeout(() => tourDraw(), st.before ? 120 : 0);
+}
+function tourDraw() {
+  const t = $('tour'); if (!t) return;
+  const st = TOUR[tourAt], spot = t.querySelector('.t-spot'), card = t.querySelector('.t-card');
+  let r = null;
+  if (st.rect) r = st.rect();
+  else if (st.el) { const el = document.querySelector(st.el); if (el && !el.closest('[hidden]') && getComputedStyle(el).display !== 'none') { const b = el.getBoundingClientRect(); if (b.width && b.height) r = b; } }
+  if (r) { spot.classList.remove('none'); Object.assign(spot.style, { left: (r.left - 6) + 'px', top: (r.top - 6) + 'px', width: (r.width + 12) + 'px', height: (r.height + 12) + 'px' }); }
+  else { spot.classList.add('none'); Object.assign(spot.style, { left: innerWidth / 2 + 'px', top: innerHeight / 2 + 'px', width: '0px', height: '0px' }); }
+  card.innerHTML = `<button class="t-skip" data-t="skip">Skip the tour</button><h4>${esc(st.title)}</h4>${st.text()}
+    <div class="t-foot"><span class="t-n">${tourAt + 1} of ${TOUR.length}</span>${tourAt > 0 ? '<button data-t="back">Back</button>' : ''}<button class="gold" data-t="next">${tourAt === TOUR.length - 1 ? 'Finish' : 'Next'}</button></div>`;
+  card.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { const k = b.dataset.t; if (k === 'skip') endTour(); else if (k === 'back') tourGo(tourAt - 1); else tourGo(tourAt + 1); });
+  // place the card beside the spotlight, on whichever side has room
+  const cw = card.offsetWidth, ch = card.offsetHeight, pad = 16;
+  let x, y;
+  if (!r) { x = (innerWidth - cw) / 2; y = (innerHeight - ch) / 2; }
+  else if (r.top + r.height + ch + 24 < innerHeight) { x = r.left + r.width / 2 - cw / 2; y = r.top + r.height + 18; }
+  else if (r.left - cw - 24 > 0) { x = r.left - cw - 18; y = r.top + r.height / 2 - ch / 2; }
+  else if (r.left + r.width + cw + 24 < innerWidth) { x = r.left + r.width + 18; y = r.top + r.height / 2 - ch / 2; }
+  else { x = r.left + r.width / 2 - cw / 2; y = r.top - ch - 18; }
+  card.style.left = Math.max(pad, Math.min(innerWidth - cw - pad, x)) + 'px';
+  card.style.top = Math.max(pad, Math.min(innerHeight - ch - pad, y)) + 'px';
+  card.querySelector('.gold').focus();
+}
+addEventListener('resize', () => { if ($('tour')) tourDraw(); });
+
 // ------------------------------------------------------------------ start: the campaign kept in this browser, or a fresh, unstarted one
 let saved = null; try { saved = (/"guest"/.test(localStorage.getItem('eriador.net') || '') && localStorage.getItem('eriador.online')) || localStorage.getItem(SAVE_KEY); } catch (e) {}
 const initial = saved || '';
@@ -4436,6 +4543,7 @@ luaCall('appLoad', initial); refresh(); tick();
 document.title = theatreName() + ' War Council'; $('brandName').textContent = theatreName() + ' War Council';
 markActing(); await syncScene(); renderUI(); setTimeout(() => { try { showPopups(); } catch (e) {} }, 1200);
 $('loading').style.opacity = 0; setTimeout(() => $('loading').remove(), 600);
+try { if (localStorage.getItem('eriador.tour') === '1' && S.started) setTimeout(() => startTour(), 1500); } catch (e) {}
 // ------------------------------------------------------------------ online: two players, one campaign, each on their own computer
 // The host's browser holds the campaign. The other player's browser connects straight to it with a game code (WebRTC,
 // through PeerJS's free public broker); no accounts. Every change travels as the whole campaign plus what it looked like.
@@ -4712,7 +4820,7 @@ function wireOnline(el) {
 })();
 window.__net = NET;
 
-window.__app = { openSettings: (t) => openSettings(t), luaRun: (c) => luaRun(c, "dbg"), openDicePicker: (s) => openDicePicker(s), openFigPicker: (o) => openFigPicker(o), setFigure: (i, f) => setFigure(i, f), versusSplash: (n) => versusSplash(n, true), resultCeremony: (b) => resultCeremony(b), LEADERS: () => LEADERS, openBattle: (n) => openBattle(n), startAmbience: () => startAmbience(), uiSound: (k) => uiSound(k), ambienceTick: () => ambienceTick(), victoryScreen: () => victoryScreen(), AMB, armyHover: (a) => armyHover(a), historyHtml: (n) => historyHtml(n), fadeOwners: (c) => fadeOwners(c), turnCinematic: () => turnCinematic(), lootCart: (m) => lootCart(m), shots, syncRoads: () => { roadKey = ''; syncRoads(); }, showRoute: (p) => showRoute(p), pathTo: (a, b) => pathTo(a, b), drawWear: () => drawOverlay(), driving, syncScene, movePreview: (d, n) => movePreview(d, n), todoList: () => todoList(), startRecap: (x) => startRecap(x), battleAftermath: (b) => battleAftermath(b), captureSweep: (n, o) => captureSweep(n, o), keysHeld, onMove: (e) => onMove(e), draw: { start: (id) => startRouteDraw(S.agents.find(g => g.id === id)), add: (n) => drawAdd(n), close: () => drawClose(), finish: () => drawFinish(), state: () => routeDraw && { path: routeDraw.path, acts: routeDraw.acts } }, fx: () => ({ glow: GLOW.list.length, smoke: SMOKE.list.length, lasting: [...lasting.keys()] }), labelsShown: () => [...LABELS.values()].filter(e => e.style.display !== 'none').length, cards: async (id) => Promise.all(JSON.parse(luaCall('appCards', id)).map(c => cardURL(cardSrc(c)))), reachSize: () => reach ? reach.all.size : 0, openLedger, diceTop: () => shown.map(d => d.m.material[upFace(d.m.quaternion)].userData.v), holdInset: () => { insetUntil = Infinity; }, dice: () => ({ insetUntil, now: performance.now(), shown: shown.length, replay: !!replay, frame: !$('insetFrame').hidden }), select, renderUI, act: (a, f) => act(a, f), get S() { return S; }, things, camera, controls, toWorld, T, luaCall };
+window.__app = { startTour: () => startTour(), tourGo: (i) => tourGo(i), openSettings: (t) => openSettings(t), luaRun: (c) => luaRun(c, "dbg"), openDicePicker: (s) => openDicePicker(s), openFigPicker: (o) => openFigPicker(o), setFigure: (i, f) => setFigure(i, f), versusSplash: (n) => versusSplash(n, true), resultCeremony: (b) => resultCeremony(b), LEADERS: () => LEADERS, openBattle: (n) => openBattle(n), startAmbience: () => startAmbience(), uiSound: (k) => uiSound(k), ambienceTick: () => ambienceTick(), victoryScreen: () => victoryScreen(), AMB, armyHover: (a) => armyHover(a), historyHtml: (n) => historyHtml(n), fadeOwners: (c) => fadeOwners(c), turnCinematic: () => turnCinematic(), lootCart: (m) => lootCart(m), shots, syncRoads: () => { roadKey = ''; syncRoads(); }, showRoute: (p) => showRoute(p), pathTo: (a, b) => pathTo(a, b), drawWear: () => drawOverlay(), driving, syncScene, movePreview: (d, n) => movePreview(d, n), todoList: () => todoList(), startRecap: (x) => startRecap(x), battleAftermath: (b) => battleAftermath(b), captureSweep: (n, o) => captureSweep(n, o), keysHeld, onMove: (e) => onMove(e), draw: { start: (id) => startRouteDraw(S.agents.find(g => g.id === id)), add: (n) => drawAdd(n), close: () => drawClose(), finish: () => drawFinish(), state: () => routeDraw && { path: routeDraw.path, acts: routeDraw.acts } }, fx: () => ({ glow: GLOW.list.length, smoke: SMOKE.list.length, lasting: [...lasting.keys()] }), labelsShown: () => [...LABELS.values()].filter(e => e.style.display !== 'none').length, cards: async (id) => Promise.all(JSON.parse(luaCall('appCards', id)).map(c => cardURL(cardSrc(c)))), reachSize: () => reach ? reach.all.size : 0, openLedger, diceTop: () => shown.map(d => d.m.material[upFace(d.m.quaternion)].userData.v), holdInset: () => { insetUntil = Infinity; }, dice: () => ({ insetUntil, now: performance.now(), shown: shown.length, replay: !!replay, frame: !$('insetFrame').hidden }), select, renderUI, act: (a, f) => act(a, f), get S() { return S; }, things, camera, controls, toWorld, T, luaCall };
 </script>
 
 </body></html>
