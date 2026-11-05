@@ -461,7 +461,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=668c45e0fb').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=d300ace60f').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -552,7 +552,7 @@ document.addEventListener('click', (e) => {
 });
 addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && AUTOSAVE.timer) asWrite(); });
 if (asSupported() && asRemembered()) { AUTOSAVE.remembered = asRemembered(); AUTOSAVE.state = 'paused'; setTimeout(renderAutosave, 0); }
-const DICE_ACTIONS = new Set(['prio', 'rule', 'gmove', 'gact', 'retreat', 'bprio', 'bapply', 'evtroll']);
+const DICE_ACTIONS = new Set(['prio', 'rule', 'gmove', 'gact', 'retreat', 'bprio', 'bapply', 'evtroll', 'evpick']);
 function act(arg, fields, quiet, opts = {}) {
   if (NET.role === 'guest' && !(NET.conn && NET.conn.open && NET.seat)) { toast('Not connected to the host: wait a moment.', 'err'); return { ok: false }; }
   if (NET.on && arg === 'undo' && NET.lastBy && NET.lastBy !== NET.role) { toast(`Only the ${OTHER_OF[NET.seat]} player can undo their own last change.`, 'err'); return { ok: false }; }
@@ -659,7 +659,7 @@ function throwDiceAsync(specs) { return new Promise(res => { throwDice(specs, nu
 // each theatre has its own board: the campaign kept in this browser says which one to set out
 let BOOT_TH = 'Eriador';
 try { const sv = (/"guest"/.test(localStorage.getItem('eriador.net') || '') && localStorage.getItem('eriador.online')) || localStorage.getItem(SAVE_KEY); if (sv) BOOT_TH = ((JSON.parse(sv) || {}).settings || {}).theatre || 'Eriador'; } catch (e) {}
-const MAP_KEY = BOOT_TH === 'Rohan' ? 'Rohan' : 'Eriador', ASSET = MAP_KEY === 'Rohan' ? 'rohan/' : '';
+const MAP_KEY = (BOOT_TH === 'Rohan' || BOOT_TH === 'Gondor') ? BOOT_TH : 'Eriador', ASSET = MAP_KEY === 'Eriador' ? '' : MAP_KEY.toLowerCase() + '/';
 const MAP = await fetch(ASSET + 'map.json').then(r => r.json()); tick();
 const T = MAP.terr;
 function loadImg(src) { return new Promise((res, rej) => { const i = new Image(); i.onload = () => { tick(); res(i); }; i.onerror = rej; i.src = src; }); }
@@ -699,7 +699,8 @@ controls.enableDamping = true; controls.dampingFactor = 0.08;
 controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
 controls.touches = { ONE: null, TWO: THREE.TOUCH.DOLLY_ROTATE };
 controls.minDistance = 5; controls.maxDistance = 260; controls.maxPolarAngle = 1.32;
-const HOME = { pos: new THREE.Vector3(20, 112, 132), target: new THREE.Vector3(4, 0, 4) };
+// a wide board (Gondor) is seen from nearer, so it fills the view
+const HOME = BD / BW < 0.55 ? { pos: new THREE.Vector3(8, 96, 112), target: new THREE.Vector3(2, 0, 6) } : { pos: new THREE.Vector3(20, 112, 132), target: new THREE.Vector3(4, 0, 4) };
 camera.position.copy(HOME.pos); controls.target.copy(HOME.target);
 
 const boardTex = new THREE.Texture(boardImg); boardTex.colorSpace = THREE.SRGBColorSpace; boardTex.anisotropy = renderer.capabilities.getMaxAnisotropy(); boardTex.needsUpdate = true;
@@ -1859,6 +1860,12 @@ function armyCard(a) {
   }
   if (stg === 'Logistics') {
     if (!a.moved && !a.needsRetreat) h += note('Drag the model on the map to move it. Where it can reach glows while it is selected.');
+    if (!a.moved && !a.needsRetreat && a.side === acting) {
+      // the River Anduin: sail along the shore, or cross to the far bank
+      const R = JSON.parse(luaCall('appReach', 'army', a.id)), sail = R.sail || [];
+      if (sail.length) h += `<h3>By water${ruleLink('theatre')}</h3><div class="grid2">` + sail.map(o => `<button ${(a.carried || 0) >= o.cost ? '' : 'disabled'} title="${o.cross ? 'Crosses the Anduin: ends this army\'s movement' : 'Uses 1 point of movement'}" data-act="sail~${a.id}~${o.n}">${esc(T[o.n].name)}<small>${o.cross ? 'Cross the Anduin' : o.steps + ' along the shore'} · ${o.cost} RP</small></button>`).join('') + `</div>` +
+        note(`Paid from the RP this army carries (${a.carried || 0}). Sailing along the shore uses 1 movement; crossing the Anduin ends its move.`);
+    }
     h += `<h3>Orders${ruleLink('actions')}</h3>`;
     if (X.order) h += `<div class="row"><span>${esc(a.name)} is ${esc(X.order.name.toLowerCase())} this turn.</span><button data-act="actcancel~${a.id}">Call it off</button></div>`;
     else {
@@ -2303,6 +2310,16 @@ const EVENT_ART = {
   dunland: '<path d="M30 10v44" stroke="#8a5a2a" stroke-width="5" stroke-linecap="round"/><path d="M30 14c10-2 18 4 20 14-8-2-14 0-20 4z" fill="#cfd6e0" stroke="#7a8696" stroke-width="2"/><path d="M14 46c6-4 12-4 16 0" stroke="#b5402f" stroke-width="3" fill="none"/>',
   saruman: '<path d="M20 54l4-30c2-8 14-8 16 0l4 30z" fill="#f4f1e8"/><circle cx="32" cy="18" r="7" fill="#e8dcc8"/><path d="M42 30c6-2 10-6 12-10M44 36c6 0 10-2 12-4" stroke="#c8b8ff" stroke-width="2.5" fill="none" stroke-linecap="round"/><path d="M46 12v44" stroke="#2a2a2a" stroke-width="3"/>',
   goblinraid: '<path d="M14 26c4-10 12-14 18-14s14 4 18 14l8-4-4 10c0 10-10 18-22 18S14 42 14 32l-8-10z" fill="#7a8a4a" stroke="#3a4a1a" stroke-width="2"/><circle cx="25" cy="30" r="4" fill="#ffd27a"/><circle cx="39" cy="30" r="4" fill="#ffd27a"/><path d="M24 42l4-3 4 3 4-3 4 3" stroke="#f4ead2" stroke-width="2" fill="none"/>',
+  boromir: '<path d="M12 40c8-2 20-12 30-24l6 4c-4 12-6 22-4 30l-6 2c-4-8-12-12-26-12z" fill="#efe2c2" stroke="#8a6a44" stroke-width="2"/><path d="M42 16l6-6" stroke="#8a6a44" stroke-width="4"/><path d="M14 46l-4 6M20 46l-2 7" stroke="#c9902f" stroke-width="2"/>',
+  insight: '<circle cx="32" cy="32" r="18" fill="#2a3a52" stroke="#9fb8d8" stroke-width="2"/><ellipse cx="32" cy="32" rx="11" ry="6" fill="#cfe3f5"/><circle cx="32" cy="32" r="4" fill="#2a3a52"/><path d="M20 52h24" stroke="#8a6a44" stroke-width="4"/>',
+  madness: '<path d="M32 8c6 10 14 14 12 26-1 9-6 14-12 16-6-2-11-7-12-16-2-12 6-16 12-26z" fill="#ff8a3a"/><path d="M32 22c3 6 7 8 6 15-1 5-3 7-6 8-3-1-5-3-6-8-1-7 3-9 6-15z" fill="#ffd27a"/><path d="M18 56h28" stroke="#5a4a3a" stroke-width="4"/>',
+  warfatigue: '<path d="M14 50l20-20" stroke="#cfd6e0" stroke-width="5" stroke-linecap="round"/><path d="M38 26l12-12" stroke="#cfd6e0" stroke-width="5" stroke-linecap="round" opacity=".7"/><path d="M10 46l8 8" stroke="#8a5a2a" stroke-width="5" stroke-linecap="round"/><path d="M34 30l4-4" stroke="#b5402f" stroke-width="3"/>',
+  king: '<path d="M14 40l4-18 8 8 6-14 6 14 8-8 4 18z" fill="#f4f1e8" stroke="#9fb0c0" stroke-width="2"/><rect x="14" y="40" width="36" height="6" fill="#9fb0c0"/><circle cx="32" cy="30" r="3" fill="#7fd3e6"/><g fill="#f4f1e8"><circle cx="22" cy="54" r="1.6"/><circle cx="32" cy="56" r="1.6"/><circle cx="42" cy="54" r="1.6"/></g>',
+  sauronwill: '<ellipse cx="32" cy="32" rx="22" ry="12" fill="#ff7a1a"/><ellipse cx="32" cy="32" rx="16" ry="8" fill="#ffd27a"/><ellipse cx="32" cy="32" rx="2.5" ry="9" fill="#120d08"/>',
+  tribute: '<ellipse cx="32" cy="48" rx="16" ry="5" fill="#c9902f"/><ellipse cx="32" cy="42" rx="16" ry="5" fill="#e0b04a"/><ellipse cx="32" cy="36" rx="16" ry="5" fill="#f2cc66"/><path d="M22 24l10-10 10 10" stroke="#e0b04a" stroke-width="3" fill="none"/>',
+  rebellion: '<g fill="none" stroke="#cfd6e0" stroke-width="4"><ellipse cx="18" cy="32" rx="8" ry="5"/><ellipse cx="46" cy="32" rx="8" ry="5"/></g><path d="M28 30l3-4 3 8 3-6" stroke="#ff8a3a" stroke-width="3" fill="none"/>',
+  paranoia: '<ellipse cx="32" cy="28" rx="20" ry="10" fill="#ff7a1a"/><ellipse cx="32" cy="28" rx="2.5" ry="8" fill="#120d08"/><path d="M26 44c0-6 12-6 12 0 0 4-6 4-6 8" stroke="#f4ead2" stroke-width="3" fill="none"/><circle cx="32" cy="58" r="2" fill="#f4ead2"/>',
+  ritual: '<circle cx="32" cy="32" r="20" fill="none" stroke="#b5402f" stroke-width="3"/><path d="M32 12l12 36-30-22h36l-30 22z" fill="none" stroke="#ff8a3a" stroke-width="2"/><circle cx="32" cy="32" r="4" fill="#ffd27a"/>',
   eclipse: '<circle cx="32" cy="32" r="18" fill="#ffb347"/><circle cx="36" cy="30" r="17" fill="#120d08"/><circle cx="32" cy="32" r="22" fill="none" stroke="#ff7a3a" stroke-width="1.5" opacity=".7"/>',
 };
 // Rohan's events that ask a side to choose: pay from a territory, pick an army, or both
@@ -2310,6 +2327,9 @@ const PICK_EVENTS = {
   eorl: { pay: true, go: 'Celebrate (100 RP)', no: 'Keep the RP' },
   saruman: { army: (a) => a.side === 'Good', go: 'Silence that army', no: 'Hold his tongue' },
   goblinraid: { pay: true, army: (a) => a.side === 'Good' && S.terr[a.loc - 1].owner === 'Good', go: 'Pay the Goblins (100 RP)', no: 'Send them away' },
+  king: { go: 'Raise the army of Aragorn', no: 'Not yet' },
+  sauronwill: { army: (a) => a.side === 'Evil', go: 'Bend this army to his will', no: 'Let it pass' },
+  ritual: { go: 'Perform the ritual (D6)', no: 'Leave it' },
 };
 function pickEventForm(sd, e) {
   const P = PICK_EVENTS[e.pending];
@@ -2473,13 +2493,13 @@ async function download(name, text, type = 'application/json') {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
-const RULE_PAGES_ALL = { turn: 6, armies: 7, battles: 10, movement: 9, agents: 12, resources: 13, buildings: 14, conquest: 15, actions: 15, specials: 16, events: 20, campaigns: 3, map: 4, theatre: 18 };
+const RULE_PAGES_ALL = { turn: 7, armies: 8, battles: 11, movement: 10, agents: 13, resources: 14, buildings: 15, conquest: 16, actions: 16, specials: 17, events: 22, campaigns: 3, map: 4, theatre: 19 };
 // some pages belong to the theatre being played
-const RULE_PAGES_BY = { Rohan: { specials: 17, events: 22, map: 5, theatre: 18 }, Gondor: { specials: 19 } };
+const RULE_PAGES_BY = { Rohan: { specials: 18, events: 24, map: 5, theatre: 19 }, Gondor: { specials: 20, events: 26, map: 6, theatre: 21 } };
 const RULE_PAGES = new Proxy(RULE_PAGES_ALL, { get: (o, k) => ((RULE_PAGES_BY[(typeof S !== 'undefined' && S && S.settings && S.settings.theatre) || 'Eriador'] || {})[k]) || o[k] });
 
 // The rulebook opens inside the page: the hosted page can't open new tabs, so every rules link lands here.
-const RULE_N = 23;
+const RULE_N = 27;
 function openRulebook(page = 1) {
   const el = $('rulebook');
   if (!el.dataset.built) {
@@ -2579,7 +2599,7 @@ function renderSettings() {
   }
   const el = $('setBody'); el.innerHTML = h; wireOnline(el);
   const nth = $('nTheatre');
-  if (nth) nth.onchange = () => { const th = nth.value, m = (S.theatreMaps || {})[th === 'Rohan' ? 'Rohan' : 'Eriador'] || {}; $('nCapG').innerHTML = capOpts(th, m.capGood); $('nCapE').innerHTML = capOpts(th, m.capEvil); };
+  if (nth) nth.onchange = () => { const th = nth.value, m = (S.theatreMaps || {})[(th === 'Rohan' || th === 'Gondor') ? th : 'Eriador'] || {}; $('nCapG').innerHTML = capOpts(th, m.capGood); $('nCapE').innerHTML = capOpts(th, m.capEvil); };
   const oc = $('openChron'); if (oc) oc.onclick = () => { chronicleOn = true; lsSet('eriador.chronicleOn', '1'); writeChronicle(); };
   el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => {
     quality = b.dataset.q; try { localStorage.setItem('eriador.quality', quality); } catch (e) {}
@@ -2634,7 +2654,7 @@ function renderSettings() {
 function closeSettings() { $('settings').hidden = true; }
 // territory choices for a theatre's map (the new-campaign form can pick a theatre with another board)
 function capOpts(th, sel) {
-  const key = th === 'Rohan' ? 'Rohan' : 'Eriador', m = (S.theatreMaps || {})[key];
+  const key = (th === 'Rohan' || th === 'Gondor') ? th : 'Eriador', m = (S.theatreMaps || {})[key];
   const names = (key === S.mapKey || !m) ? Object.keys(T).map(n => T[n].name) : m.names;
   return names.map((nm, i) => opt((i + 1) + ' · ' + nm, (i + 1) + ' · ' + nm, i + 1 === +sel)).join('');
 }
@@ -4087,7 +4107,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=668c45e0fb').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=d300ace60f').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4295,7 +4315,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=668c45e0fb').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=d300ace60f').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }

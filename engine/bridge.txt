@@ -156,10 +156,14 @@ function appReach(kind, id)
     if not a then return "{}" end
     if a.needsRetreat then return JSON.encode({ normal = retreatOptions(a), march = {}, retreat = true }) end
     if a.status == "building" or (a.moved and not S.settings.override) then return JSON.encode({ normal = {}, march = {} }) end
-    local budget = armyMove(a) - (a.slow or 0)
+    local budget = armyMove(a) - (a.slow or 0) - sailCost(a)
     local normal = moveRangeFor(a, true, budget)
     local march = a.canMarch and moveRangeFor(a, true, budget + marchBonus(a)) or {}
-    return JSON.encode({ normal = normal, march = march })
+    local sail = {}
+    if STAGES[S.stage] == "Logistics" and a.sailT ~= S.turn then
+      for _, s_ in ipairs(sailOptions(a)) do if not madnessBlocks(a, s_.n) and not fangornBlocked(a, s_.n) then sail[#sail + 1] = s_ end end
+    end
+    return JSON.encode({ normal = normal, march = march, sail = sail, carried = a.carried or 0 })
   else
     local g = agentById(id)
     if not g or g.army then return "{}" end
@@ -474,7 +478,7 @@ function appTodo(side)
   elseif st == "Logistics" then
     for _, a in ipairs(S.armies) do
       if a.side == side and a.status ~= "building" and not a.moved and not a.needsRetreat then
-        local budget = armyMove(a) - (a.slow or 0)
+        local budget = armyMove(a) - (a.slow or 0) - sailCost(a)
         if #moveRangeFor(a, true, budget) > 0 then add({ text = a.name .. " hasn't moved", army = a.id, n = a.loc, kind = "move" }) end
       end
     end
