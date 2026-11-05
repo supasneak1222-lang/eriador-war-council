@@ -71,9 +71,9 @@ BUILDINGS = {
   { key = "roads",      name = "Roads",             short = "Rd",  cost = 150, turns = 4, rules = "Leaving this region costs no movement: an army can use that once a turn, an agent or Supply Wagon up to three times a turn.", desc = "Leaving this region costs no movement (armies once a turn, agents and wagons up to 3 times)." },
   { key = "fort",       name = "Fortifications",    short = "For", cost = 150, turns = 3, rules = "Battles here are Sieges and the defender gains a 400 pt garrison. While it holds, the owner's adjacent territories cannot be conquered, and adjacent Neutral territories take 1 extra turn for the enemy to conquer.", desc = "Siege + 400 pt garrison; protects adjacent friendly territories from conquest; adjacent Neutral land takes the enemy +1 turn." },
   { key = "city",       name = "City",              short = "Cty", cost = 200, turns = 4, rules = "Territory makes +50 RP per turn (75 total) and takes 1 extra turn to conquer.", desc = "+50 income; takes 1 more turn to conquer." },
-  { key = "scouttower", name = "Scout Tower",       short = "ScT", cost = 100, turns = 2, rules = "Reveals enemy armies in adjacent territories. The owner gets +1 to all priority rolls in battles fought here.", desc = "Reveals armies in adjacent territories; +1 battle priority here." },
-  { key = "archery",    name = "Archery Tower",     short = "Arc", cost = 50,  turns = 2, rules = "In battles here, the owner may place a tower on their side of deployment.", desc = "Owner places a tower in their deployment zone here." },
-  { key = "mapping",    name = "Land Mapping",      short = "Map", cost = 50,  turns = 2, rules = "The owner of this territory automatically wins deployment priority rolls here.", desc = "Owner automatically wins deployment priority here." },
+  { key = "scouttower", name = "Scout Tower",       short = "ScT", cost = 100, turns = 2, rules = "Reveals enemy armies in adjacent territories. The owner gets +1 to all priority rolls in battles fought here. In battles here or in any adjacent territory, the owner's army chooses who deploys first, whatever the scenario rules or warband totals say.", desc = "Reveals armies in adjacent territories; +1 battle priority here; choose who deploys first here and next door." },
+  { key = "archery",    name = "Ballista Tower",    short = "Bal", cost = 50,  turns = 2, rules = "In battles here, the owner places a Ballista Tower in their deployment zone: Shoot Value 4+, range 48\", normal MESBG Ballista scatter rules. It can be fired up to three times a game, and is destroyed if an enemy model is in base contact with it and unengaged during a Fight phase.", desc = "Owner places a Ballista Tower (Shoot 4+, 48\", 3 shots) in their deployment zone here." },
+  { key = "mapping",    name = "Land Mapping",      short = "Map", cost = 50,  turns = 2, rules = "In this territory and every territory next to it, nothing hinders the owner's movement: no road blockages, no snowed-in events, and Supply Wagons pay no extra for Neutral land.", desc = "Here and next door: road blockages, snow and Neutral land don't hinder the owner's pieces." },
 }
 BUILDING_BY_KEY = {}
 for _, b in ipairs(BUILDINGS) do BUILDING_BY_KEY[b.key] = b end
@@ -317,11 +317,22 @@ end
 -- once for an army, up to three times for an agent or a Supply Wagon. Past that, a step costs the usual 1.
 ROAD_FREE_ARMY, ROAD_FREE_OTHER = 1, 3
 
+-- Land Mapping: in a mapped territory and every territory next to it, nothing hinders its owner's pieces
+-- (road blockages, snow, the extra cost of Neutral land for wagons).
+function mappedFor(n, side)
+  if not side or not n or not S.terr[n] then return false end
+  local t = S.terr[n]
+  if t.b and t.b.mapping and t.owner == side then return true end
+  for _, m in ipairs(ADJ[n] or {}) do local u = S.terr[m]; if u and u.b and u.b.mapping and u.owner == side then return true end end
+  return false
+end
+function snowedFor(n, side) return isSnowed(n) and not mappedFor(n, side) end
+
 -- What one step from u to v costs, and the free road crossings left after it. A Supply Wagon spends 2 whenever
 -- it enters or leaves Neutral territory (roads don't help there), so wagons can't race through unclaimed land.
-function stepCostFor(u, v, wagon, free)
+function stepCostFor(u, v, wagon, free, side)
   free = free or 0
-  if wagon and (S.terr[u].owner == "Neutral" or S.terr[v].owner == "Neutral") then return 2, free end
+  if wagon and ((S.terr[u].owner == "Neutral" and not mappedFor(u, side)) or (S.terr[v].owner == "Neutral" and not mappedFor(v, side))) then return 2, free end
   if S.terr[u].b.roads and free > 0 then return 0, free - 1 end
   return 1, free
 end
@@ -335,7 +346,7 @@ function agentRoadFree(g) return math.max(0, ROAD_FREE_OTHER - (g.roadUsed or 0)
 
 -- Every way of moving from start within budget, keeping each territory's cheapest cost for every number of free road
 -- crossings left (more left is better). pen(u, v) adds a routing penalty that isn't movement (to go around enemies).
-function moveSearch(start, budget, wagon, free, pen)
+function moveSearch(start, budget, wagon, free, pen, side)
   free = roadFreeFor(wagon, free)
   local st = { [start] = { [free] = { p = 0, c = 0 } } }
   local done = {}
@@ -347,8 +358,8 @@ function moveSearch(start, budget, wagon, free, pen)
     if not bs then break end
     done[bn] = done[bn] or {}; done[bn][bf] = true
     for _, v in ipairs(ADJ[bn] or {}) do
-      if not isSnowed(v) then
-        local c, f2 = stepCostFor(bn, v, wagon, bf)
+      if not snowedFor(v, side) then
+        local c, f2 = stepCostFor(bn, v, wagon, bf, side)
         local nc = bs.c + c
         if nc <= budget + 1e-6 then
           local np = bs.p + c + (pen and pen(bn, v) or 0)
@@ -366,8 +377,8 @@ function moveSearch(start, budget, wagon, free, pen)
 end
 
 -- Movement cost from start to everywhere within budget, and the free road crossings left on the cheapest way there.
-function reachDist(start, budget, wagon, free)
-  local st = moveSearch(start, budget, wagon, free)
+function reachDist(start, budget, wagon, free, side)
+  local st = moveSearch(start, budget, wagon, free, nil, side)
   local dist, left = {}, {}
   for n, byF in pairs(st) do
     for f, x in pairs(byF) do
@@ -383,8 +394,8 @@ function agentMoveLeft(g)
   return math.max(0, (AGENTS[g.type] and AGENTS[g.type].move or 0) - (g.mvUsed or 0))
 end
 
-function reachable(start, budget, wagon, free)
-  local dist = reachDist(start, budget, wagon, free)
+function reachable(start, budget, wagon, free, side)
+  local dist = reachDist(start, budget, wagon, free, side)
   local out = {}
   for n, _ in pairs(dist) do if n ~= start then table.insert(out, n) end end
   table.sort(out)
@@ -395,7 +406,7 @@ end
 function armyPath(a, from, dest, budget)
   if from == dest then return {} end
   local st = moveSearch(from, budget or 99, false, ROAD_FREE_ARMY,
-    function(u, v) return ((v ~= dest and #armiesIn(v, OTHER[a.side]) > 0) and 100 or 0) end)
+    function(u, v) return ((v ~= dest and #armiesIn(v, OTHER[a.side]) > 0) and 100 or 0) end, a.side)
   local at, bf
   for f, x in pairs(st[dest] or {}) do if not at or x.p < at.p then at, bf = x, f end end
   if not at then return shortestPath(from, dest) end
@@ -1030,7 +1041,7 @@ function moveArmy(a, dest, march)
   if held and not S.settings.override then return a.name .. " can't move this turn: " .. held .. "." end
   local budget = armyMove(a) + (march and 1 or 0) - (a.slow or 0)
   local okDest = false
-  for _, x in ipairs(reachable(a.loc, budget)) do if x == dest then okDest = true end end
+  for _, x in ipairs(reachable(a.loc, budget, false, nil, a.side)) do if x == dest then okDest = true end end
   if not okDest and not S.settings.override then return tname(dest) .. " is out of range." end
   local from = a.loc
   local leave = leaveBlock(from, a, true)
@@ -1038,11 +1049,11 @@ function moveArmy(a, dest, march)
     return "The roads out of " .. tname(from) .. " are blocked: leaving takes " .. a.name .. "'s whole move, so it can only go to a neighbouring territory."
   end
   local path = armyPath(a, from, dest, budget)
-  local stopAt = blockOnPath(path)
+  local stopAt = blockOnPath(path, a.side)
   local engaged = nil
   if not passesEnemies(a) then
     for i, m in ipairs(path) do
-      if i < #path and (not stopAt or i < (select(2, blockOnPath(path)) or 99)) and #armiesIn(m, OTHER[a.side]) > 0 then engaged = m; break end
+      if i < #path and (not stopAt or i < (select(2, blockOnPath(path, a.side)) or 99)) and #armiesIn(m, OTHER[a.side]) > 0 then engaged = m; break end
     end
   end
   if engaged then stopAt = nil; dest = engaged
@@ -1053,7 +1064,7 @@ function moveArmy(a, dest, march)
   a.moved = true
   a.slow = nil
   if leave then afterLeave(from, leave) end
-  if stopAt or S.terr[dest].block then hitBlock(dest, a.side, a.name) end
+  if stopAt or (S.terr[dest].block and not mappedFor(dest, a.side)) then hitBlock(dest, a.side, a.name) end
   armyLeft(a, from)
   if march then a.exh = 3; clog(a.name .. " made a Heroic March and is exhausted for 2 turns.", a.side) end
   clog(a.side .. " army " .. a.name .. " moved " .. tname(from) .. " -> " .. tname(dest) .. ".", a.side)
@@ -1163,7 +1174,7 @@ function retreatArmy(a, dest)
   a.loc = dest
   a.needsRetreat = false
   if leave then afterLeave(from, leave) end
-  if S.terr[dest].block then hitBlock(dest, a.side, a.name) end
+  if S.terr[dest].block and not mappedFor(dest, a.side) then hitBlock(dest, a.side, a.name) end
   armyLeft(a, from)
   clog(a.side .. " army " .. a.name .. " retreated " .. tname(from) .. " -> " .. tname(dest) .. ((#route > 2) and (" (" .. (#route - 1) .. " territories)") or "") .. ".", a.side)
   local steps = {}; for i = 2, #route do table.insert(steps, route[i]) end   -- the path the token drives, without its start
@@ -1294,7 +1305,7 @@ function moveAgent(g, dest)
   if left <= 0 and not S.settings.override then return "This agent has used all its movement this turn." end
   if dest == g.loc then return "It's already there." end
   local free = agentRoadFree(g)
-  local dist, roadsLeft = reachDist(g.loc, left, g.type == "Supply Wagon", free)
+  local dist, roadsLeft = reachDist(g.loc, left, g.type == "Supply Wagon", free, g.side)
   if not dist[dest] and not S.settings.override then
     return tname(dest) .. " is out of range (" .. (left == math.floor(left) and left or string.format("%.1f", left)) .. " movement left)."
   end
@@ -1304,7 +1315,7 @@ function moveAgent(g, dest)
   if leave == "slow" and not isAdjacent(from, dest) and not S.settings.override then
     return "The roads out of " .. tname(from) .. " are blocked: leaving takes the wagon's whole move, so it can only go to a neighbouring territory."
   end
-  local stopAt = (g.type == "Supply Wagon") and blockOnPath(shortestPath(from, dest)) or nil
+  local stopAt = (g.type == "Supply Wagon") and blockOnPath(shortestPath(from, dest), g.side) or nil
   if stopAt then dest = stopAt end
   g.loc = dest
   g.mvUsed = (g.mvUsed or 0) + cost
@@ -1312,7 +1323,7 @@ function moveAgent(g, dest)
   -- leaving blocked roads or running into a blockage ends its move; so does running out of movement
   if leave == "slow" or stopAt or agentMoveLeft(g) < 0.5 then g.moved = true end
   if leave then afterLeave(from, leave) end
-  if g.type == "Supply Wagon" and (stopAt or S.terr[dest].block) then hitBlock(dest, g.side, wagonLabel(g)) end
+  if g.type == "Supply Wagon" and (stopAt or (S.terr[dest].block and not mappedFor(dest, g.side))) then hitBlock(dest, g.side, wagonLabel(g)) end
   clog(g.side .. " " .. g.type .. " moved " .. tname(from) .. " -> " .. tname(dest) .. ".", g.side)
   if g.type == "Supply Wagon" then
     pieceHook("routed", "agent", g, shortestPath(from, dest))
@@ -1559,8 +1570,13 @@ function battleModifiers(n, atk, def)
     prio[t.owner] = prio[t.owner] + 1
     table.insert(lines, "Scout Tower: " .. t.owner .. " +1 to all priority rolls.")
   end
-  if t.b.archery and t.owner ~= "Neutral" then table.insert(lines, "Archery Tower: " .. t.owner .. " may place a tower in their deployment zone.") end
-  if t.b.mapping and t.owner ~= "Neutral" then table.insert(lines, "Land Mapping: " .. t.owner .. " automatically wins deployment priority.") end
+  if t.b.archery and t.owner ~= "Neutral" then table.insert(lines, "Ballista Tower: " .. t.owner .. " places a Ballista Tower in their deployment zone (Shoot 4+, 48\", normal Ballista scatter; up to 3 shots a game; destroyed by an unengaged enemy model in base contact in a Fight phase).") end
+  -- Scout Towers here or next door: that side chooses who deploys first
+  local towers = {}
+  local near = { n }; for _, m in ipairs(ADJ[n] or {}) do near[#near + 1] = m end
+  for _, m in ipairs(near) do local u = S.terr[m]; if u and u.b.scouttower and u.owner ~= "Neutral" then towers[u.owner] = true end end
+  if towers.Good and towers.Evil then table.insert(lines, "Scout Towers: both sides have one here or next door, so deployment follows the scenario.")
+  elseif towers.Good or towers.Evil then local w = towers.Good and "Good" or "Evil"; table.insert(lines, "Scout Tower: " .. w .. " chooses who deploys first, whatever the scenario rules or warband totals say.") end
   for _, a in ipairs({ atk, def }) do
     if a then
       if a.replenishing then
@@ -2195,7 +2211,12 @@ end
 --   depart happens at the turn's starting territory before the wagon leaves (or while it stays put); acts[i] happens at stop i.
 --   Each leg is one turn's movement. Leaving a territory costs 1 (none with Roads, up to 3 times a turn); a leg may spend up to 3.
 -- ===================================================================
-local function stepCost(from, to, free) return stepCostFor(from, to, true, free == nil and ROAD_FREE_OTHER or free) end
+local function stepCost(from, to, free, side) return stepCostFor(from, to, true, free == nil and ROAD_FREE_OTHER or free, side) end
+-- The side whose wagon follows this route (Land Mapping helps only its owner).
+function routeSide(route)
+  for _, g in ipairs(S.agents or {}) do if g.route == route then return g.side end end
+  return nil
+end
 
 local function noAct() return { k = "none" } end
 
@@ -2262,10 +2283,10 @@ end
 -- Checks a leg against the map as it is now. Returns true or an error string.
 function validateLeg(route, k)
   local here = legStart(route, k)
-  local spent, free = 0, ROAD_FREE_OTHER
+  local spent, free, side = 0, ROAD_FREE_OTHER, routeSide(route)
   for i, n in ipairs(route.legs[k].steps) do
     if not isAdjacent(here, n) then return "Turn " .. k .. ", move " .. i .. ": " .. NAMES[n] .. " doesn't border " .. NAMES[here] .. "." end
-    local c; c, free = stepCost(here, n, free)
+    local c; c, free = stepCost(here, n, free, side)
     spent = spent + c
     if spent > AGENTS[WAGON].move + 1e-6 then return "Turn " .. k .. " moves too far (" .. AGENTS[WAGON].move .. " movement a turn; leaving Roads is free up to 3 times, entering or leaving Neutral land costs 2)." end
     here = n
@@ -2296,16 +2317,16 @@ end
 function stepOptions(route, k, s)
   local leg = route.legs[k]
   local here = legStart(route, k)
-  local spent, free = 0, ROAD_FREE_OTHER
+  local spent, free, side = 0, ROAD_FREE_OTHER, routeSide(route)
   for i = 1, s - 1 do
     local n = leg.steps[i]
     if not n then return {} end
-    local c; c, free = stepCost(here, n, free)
+    local c; c, free = stepCost(here, n, free, side)
     spent = spent + c
     here = n
   end
   local out = {}
-  for _, v in ipairs(ADJ[here] or {}) do if spent + stepCost(here, v, free) <= AGENTS[WAGON].move + 1e-6 then out[#out + 1] = v end end
+  for _, v in ipairs(ADJ[here] or {}) do if spent + stepCost(here, v, free, side) <= AGENTS[WAGON].move + 1e-6 then out[#out + 1] = v end end
   return out
 end
 
@@ -2463,7 +2484,7 @@ function runRoutes()
             local leave = leaveBlock(g.loc, g, false)
             for i, n in ipairs(leg.steps) do
               if i > 1 and leave == "slow" then held = true; break end   -- leaving blocked roads took the whole move
-              if isSnowed(n) then held = true; break end                -- snowed in: nobody gets through
+              if snowedFor(n, g.side) then held = true; break end       -- snowed in: nobody gets through (but Land Mapping)
               local was = g.loc
               g.loc = n
               table.insert(visited, n)
@@ -2471,7 +2492,7 @@ function runRoutes()
               if wagonCaptureCheck(g) then caught = true; break end
               perform(leg.acts[i])
               lastAct = leg.acts[i]
-              if S.terr[n].block and i < #leg.steps then hitBlock(n, g.side, wagonLabel(g)); held = true; break end
+              if S.terr[n].block and i < #leg.steps and not mappedFor(n, g.side) then hitBlock(n, g.side, wagonLabel(g)); held = true; break end
             end
           end
           if held then
@@ -2536,7 +2557,7 @@ function supplyPath(a, b, side)
     if not u or u == b then break end
     done[u] = true
     for _, v in ipairs(ADJ[u] or {}) do
-      local c = stepCost(u, v) + (isSnowed(v) and 10000 or 0)
+      local c = stepCost(u, v, nil, side) + (snowedFor(v, side) and 10000 or 0)
       local o = S.terr[v].owner
       if o ~= side and o ~= "Neutral" then c = c + 4 end
       if v ~= b and #armiesIn(v, OTHER[side]) > 0 then c = c + 100 end
@@ -2593,8 +2614,8 @@ function runArmySupply(g, r)
     local target = ((g.carried or 0) > 0) and a.loc or r.depot
     if g.loc == target then break end
     local path = supplyPath(g.loc, target, g.side)
-    if not path or #path == 0 or isSnowed(path[1]) then break end
-    local c, f2 = stepCost(g.loc, path[1], free)
+    if not path or #path == 0 or snowedFor(path[1], g.side) then break end
+    local c, f2 = stepCost(g.loc, path[1], free, g.side)
     if leave == "slow" then c = budget end   -- blocked roads: leaving takes the whole move
     if spent + c > budget + 1e-6 then break end
     spent, free = spent + c, f2
@@ -2604,7 +2625,7 @@ function runArmySupply(g, r)
     if leave then afterLeave(was, leave); leave = nil end
     if wagonCaptureCheck(g) then caught = true; break end
     act()
-    if S.terr[g.loc].block then hitBlock(g.loc, g.side, wagonLabel(g)); break end   -- blocked roads end its move
+    if S.terr[g.loc].block and not mappedFor(g.loc, g.side) then hitBlock(g.loc, g.side, wagonLabel(g)); break end   -- blocked roads end its move
   end
   g.moved = true
   if #visited > 0 then
@@ -2813,6 +2834,7 @@ end
 function leaveBlock(n, mover, isArmy)
   local b = n and S.terr[n] and S.terr[n].block
   if not b then return nil end
+  if mover and mappedFor(n, mover.side) then return nil end   -- Land Mapping: blockages don't hold up its owner
   if isArmy and b.by == mover.id and b.free then return "free" end
   return "slow"
 end
@@ -2828,9 +2850,9 @@ function afterLeave(n, kind)
 end
 
 -- First blocked territory a mover would run into along path (not counting its destination), or nil.
-function blockOnPath(path)
+function blockOnPath(path, side)
   for i, n in ipairs(path or {}) do
-    if i < #path and S.terr[n].block then return n, i end
+    if i < #path and S.terr[n].block and not mappedFor(n, side) then return n, i end
   end
   return nil
 end
@@ -2949,7 +2971,7 @@ function moveRangeFor(unit, isArmy, budget)
     for _, m in ipairs(ADJ[unit.loc] or {}) do table.insert(out, m) end
     return out
   end
-  return reachable(unit.loc, budget, (not isArmy) and unit.type == "Supply Wagon", (not isArmy) and agentRoadFree(unit) or nil)
+  return reachable(unit.loc, budget, (not isArmy) and unit.type == "Supply Wagon", (not isArmy) and agentRoadFree(unit) or nil, unit.side)
 end
 
 -- Campaigns from before the Chronicle kept action records: rebuild them from the log once.
@@ -3286,7 +3308,7 @@ function eventsOn() return S.settings.randomEvents ~= false and EVENT_TABLES[S.s
 -- ---------- what the rest of the War Council asks ----------
 function eventNoMove(a)
   if a.noMoveTurn == S.turn then return a.noMoveWhy or "an event" end
-  if S.snow and S.snow.t == S.turn and S.snow.army == a.id then return "it is snowed in" end
+  if S.snow and S.snow.t == S.turn and S.snow.army == a.id and not mappedFor(a.loc, a.side) then return "it is snowed in" end
   return nil
 end
 function isSnowed(n) return S.snow and S.snow.t == S.turn and S.snow.n == n end
@@ -4325,7 +4347,7 @@ local function handleDrop(kind, ent, o, n)
     else
       local march = false
       local inRange = false
-      for _, x in ipairs(reachable(ent.loc, armyMove(ent) - (ent.slow or 0))) do if x == n then inRange = true end end
+      for _, x in ipairs(reachable(ent.loc, armyMove(ent) - (ent.slow or 0), false, nil, ent.side)) do if x == n then inRange = true end end
       if not inRange and ent.canMarch then march = true end
       r = moveArmy(ent, n, march)
     end
@@ -8178,7 +8200,7 @@ local function tabAgents(pk)
     local k = { col({ txt(title, { size = 24, style = "Bold", color = C.gold, h = 34 }), txt(sub, { size = 13, color = C.dim2, h = 20 }) }, nil, 2) }
     if not g.army then
       local dests = {}
-      for _, n in ipairs(reachable(g.loc, agentMoveLeft(g), g.type == "Supply Wagon", agentRoadFree(g))) do table.insert(dests, terrOpt(n)) end
+      for _, n in ipairs(reachable(g.loc, agentMoveLeft(g), g.type == "Supply Wagon", agentRoadFree(g), g.side)) do table.insert(dests, terrOpt(n)) end
       if #dests == 0 then dests = { "(nowhere in range)" } end
       table.insert(k, row({ txt("Move to", { w = 70, color = C.dim, size = 13 }), dropdown(pk, "gDest", dests),
                             btn(pk, "Move agent", { w = 130, enabled = stageAllowed("Logistics") and not g.moved }, "gmove", g.id) }, 32))
@@ -11081,12 +11103,12 @@ function updateHints(pk)
     local a = armyById(u.sel.army)
     if a and canSee(pk, a.side) then
       local budget = armyMove(a) - (a.slow or 0)
-      return showRange(a.side, a.loc, reachable(a.loc, budget), "a" .. a.id .. ":" .. a.loc .. ":" .. budget)
+      return showRange(a.side, a.loc, reachable(a.loc, budget, false, nil, a.side), "a" .. a.id .. ":" .. a.loc .. ":" .. budget)
     end
   elseif u.tab == "Agents" and u.sel.agent then
     local g = agentById(u.sel.agent)
     if g and canSee(pk, g.side) and not g.army and g.loc then
-      return showRange(g.side, g.loc, reachable(g.loc, agentMoveLeft(g), g.type == "Supply Wagon", agentRoadFree(g)), "g" .. g.id .. ":" .. g.loc)
+      return showRange(g.side, g.loc, reachable(g.loc, agentMoveLeft(g), g.type == "Supply Wagon", agentRoadFree(g), g.side), "g" .. g.id .. ":" .. g.loc)
     end
   elseif u.tab == "Wagons" and u.sel.wagon then
     local g = agentById(u.sel.wagon)
@@ -11100,7 +11122,7 @@ function updateHints(pk)
         return showRange(g.side, g.loc, path, "ws" .. g.id .. ":" .. g.loc .. ":" .. tostring(tgt))
       end
       if g.route then return showRoute(g, "w" .. g.id .. ":" .. JSON.encode(g.route.legs) .. ":" .. tostring(g.route.start)) end
-      return showRange(g.side, g.loc, reachable(g.loc, AGENTS["Supply Wagon"].move, true), "wr" .. g.id .. ":" .. g.loc)
+      return showRange(g.side, g.loc, reachable(g.loc, AGENTS["Supply Wagon"].move, true, nil, g.side), "wr" .. g.id .. ":" .. g.loc)
     end
   end
   clearHints()
