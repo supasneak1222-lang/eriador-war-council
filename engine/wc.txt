@@ -68,7 +68,7 @@ BUILDINGS = {
   { key = "medical",    name = "Medical College",   short = "Med", cost = 100, turns = 3, rules = "Lets you recruit Surgeons. You can have as many Surgeons as you have Medical Colleges.", desc = "Each allows 1 Surgeon." },
   { key = "slums",      name = "Slums",             short = "Slm", cost = 100, turns = 3, rules = "Lets you recruit Assassins. You can have as many Assassins as you have Slums.", desc = "Each allows 1 Assassin." },
   { key = "demolition", name = "Demolition Guild",  short = "Dem", cost = 75,  turns = 2, rules = "Lets you recruit Saboteurs. You can have as many Saboteurs as you have Demolition Guilds.", desc = "Each allows 1 Saboteur." },
-  { key = "roads",      name = "Roads",             short = "Rd",  cost = 150, turns = 4, rules = "Units move through this region at double speed: leaving it costs only half a move.", desc = "Moving out of this region costs half a move." },
+  { key = "roads",      name = "Roads",             short = "Rd",  cost = 150, turns = 4, rules = "Leaving this region costs no movement: an army can use that once a turn, an agent or Supply Wagon up to three times a turn.", desc = "Leaving this region costs no movement (armies once a turn, agents and wagons up to 3 times)." },
   { key = "fort",       name = "Fortifications",    short = "For", cost = 150, turns = 3, rules = "Battles here are Sieges and the defender gains a 400 pt garrison. While it holds, the owner's adjacent territories cannot be conquered, and adjacent Neutral territories take 1 extra turn for the enemy to conquer.", desc = "Siege + 400 pt garrison; protects adjacent friendly territories from conquest; adjacent Neutral land takes the enemy +1 turn." },
   { key = "city",       name = "City",              short = "Cty", cost = 200, turns = 4, rules = "Territory makes +50 RP per turn (75 total) and takes 1 extra turn to conquer.", desc = "+50 income; takes 1 more turn to conquer." },
   { key = "scouttower", name = "Scout Tower",       short = "ScT", cost = 100, turns = 2, rules = "Reveals enemy armies in adjacent territories. The owner gets +1 to all priority rolls in battles fought here.", desc = "Reveals armies in adjacent territories; +1 battle priority here." },
@@ -313,31 +313,68 @@ function isAdjacent(a, b)
   return false
 end
 
--- Regions reachable within `budget` moves. Leaving a region with Roads costs 0.5.
--- Movement cost from start to everywhere within budget (roads halve a step out of a territory that has them).
-function reachDist(start, budget, wagon)
-  local dist = { [start] = 0 }
-  local open = { start }
-  while #open > 0 do
-    local bi = 1
-    for i = 2, #open do if dist[open[i]] < dist[open[bi]] then bi = i end end
-    local u = table.remove(open, bi)
-    for _, v in ipairs(ADJ[u] or {}) do
-      local nd = dist[u] + stepCostFor(u, v, wagon)
-      if nd <= budget + 1e-6 and (dist[v] == nil or nd < dist[v]) and not isSnowed(v) then
-        if dist[v] == nil then table.insert(open, v) end
-        dist[v] = nd
+-- Roads: leaving a territory with Roads costs no movement, a limited number of times a turn:
+-- once for an army, up to three times for an agent or a Supply Wagon. Past that, a step costs the usual 1.
+ROAD_FREE_ARMY, ROAD_FREE_OTHER = 1, 3
+
+-- What one step from u to v costs, and the free road crossings left after it. A Supply Wagon spends 2 whenever
+-- it enters or leaves Neutral territory (roads don't help there), so wagons can't race through unclaimed land.
+function stepCostFor(u, v, wagon, free)
+  free = free or 0
+  if wagon and (S.terr[u].owner == "Neutral" or S.terr[v].owner == "Neutral") then return 2, free end
+  if S.terr[u].b.roads and free > 0 then return 0, free - 1 end
+  return 1, free
+end
+
+-- The free road crossings a mover starts with: armies 1, agents and wagons 3 (less any used earlier this turn).
+function roadFreeFor(wagon, free)
+  if free ~= nil then return free end
+  return wagon and ROAD_FREE_OTHER or ROAD_FREE_ARMY
+end
+function agentRoadFree(g) return math.max(0, ROAD_FREE_OTHER - (g.roadUsed or 0)) end
+
+-- Every way of moving from start within budget, keeping each territory's cheapest cost for every number of free road
+-- crossings left (more left is better). pen(u, v) adds a routing penalty that isn't movement (to go around enemies).
+function moveSearch(start, budget, wagon, free, pen)
+  free = roadFreeFor(wagon, free)
+  local st = { [start] = { [free] = { p = 0, c = 0 } } }
+  local done = {}
+  while true do
+    local bn, bf, bs
+    for n, byF in pairs(st) do for f, x in pairs(byF) do
+      if not (done[n] and done[n][f]) and (not bs or x.p < bs.p) then bn, bf, bs = n, f, x end
+    end end
+    if not bs then break end
+    done[bn] = done[bn] or {}; done[bn][bf] = true
+    for _, v in ipairs(ADJ[bn] or {}) do
+      if not isSnowed(v) then
+        local c, f2 = stepCostFor(bn, v, wagon, bf)
+        local nc = bs.c + c
+        if nc <= budget + 1e-6 then
+          local np = bs.p + c + (pen and pen(bn, v) or 0)
+          st[v] = st[v] or {}
+          local cur = st[v][f2]
+          -- a state no better than one already found (cheaper or as cheap with as many crossings left) is dropped
+          local dominated = false
+          for f3, y in pairs(st[v]) do if f3 >= f2 and y.p <= np and y.c <= nc and not (f3 == f2 and y == cur) then dominated = true; break end end
+          if not dominated and (not cur or np < cur.p) then st[v][f2] = { p = np, c = nc, prev = bn, pf = bf } end
+        end
       end
     end
   end
-  return dist
+  return st
 end
 
--- What one step from u to v costs a unit. Roads halve a step out of a territory that has them. A Supply Wagon
--- spends 2 whenever it enters or leaves Neutral territory, so wagons can't race through unclaimed land.
-function stepCostFor(u, v, wagon)
-  if wagon and (S.terr[u].owner == "Neutral" or S.terr[v].owner == "Neutral") then return 2 end
-  return S.terr[u].b.roads and 0.5 or 1
+-- Movement cost from start to everywhere within budget, and the free road crossings left on the cheapest way there.
+function reachDist(start, budget, wagon, free)
+  local st = moveSearch(start, budget, wagon, free)
+  local dist, left = {}, {}
+  for n, byF in pairs(st) do
+    for f, x in pairs(byF) do
+      if dist[n] == nil or x.c < dist[n] - 1e-9 or (math.abs(x.c - dist[n]) < 1e-9 and f > left[n]) then dist[n], left[n] = x.c, f end
+    end
+  end
+  return dist, left
 end
 
 -- An agent spends its movement over as many moves as it likes in the Logistics stage.
@@ -346,21 +383,8 @@ function agentMoveLeft(g)
   return math.max(0, (AGENTS[g.type] and AGENTS[g.type].move or 0) - (g.mvUsed or 0))
 end
 
-function reachable(start, budget, wagon)
-  local dist = { [start] = 0 }
-  local open = { start }
-  while #open > 0 do
-    local bi = 1
-    for i = 2, #open do if dist[open[i]] < dist[open[bi]] then bi = i end end
-    local u = table.remove(open, bi)
-    for _, v in ipairs(ADJ[u] or {}) do
-      local nd = dist[u] + stepCostFor(u, v, wagon)
-      if nd <= budget + 1e-6 and (dist[v] == nil or nd < dist[v]) and not isSnowed(v) then
-        if dist[v] == nil then table.insert(open, v) end
-        dist[v] = nd
-      end
-    end
-  end
+function reachable(start, budget, wagon, free)
+  local dist = reachDist(start, budget, wagon, free)
   local out = {}
   for n, _ in pairs(dist) do if n ~= start then table.insert(out, n) end end
   table.sort(out)
@@ -370,23 +394,17 @@ end
 -- The way army a goes from `from` to `dest` within budget: around enemy armies if it can, else the shortest way.
 function armyPath(a, from, dest, budget)
   if from == dest then return {} end
-  local dist, prev, done = { [from] = 0 }, {}, {}
-  local real = { [from] = 0 }
-  while true do
-    local u, best = nil, nil
-    for n, d in pairs(dist) do if not done[n] and (not best or d < best) then u, best = n, d end end
-    if not u or u == dest then break end
-    done[u] = true
-    local step = S.terr[u].b.roads and 0.5 or 1
-    for _, v in ipairs(ADJ[u] or {}) do
-      local pen = ((v ~= dest and #armiesIn(v, OTHER[a.side]) > 0) and 100 or 0) + (isSnowed(v) and 10000 or 0)
-      local nd = best + step + pen
-      if real[u] + step <= (budget or 99) + 1e-6 and (not dist[v] or nd < dist[v]) then dist[v] = nd; real[v] = real[u] + step; prev[v] = u end
-    end
+  local st = moveSearch(from, budget or 99, false, ROAD_FREE_ARMY,
+    function(u, v) return ((v ~= dest and #armiesIn(v, OTHER[a.side]) > 0) and 100 or 0) end)
+  local at, bf
+  for f, x in pairs(st[dest] or {}) do if not at or x.p < at.p then at, bf = x, f end end
+  if not at then return shortestPath(from, dest) end
+  local path, cur, cf = {}, dest, bf
+  while cur ~= from do
+    table.insert(path, 1, cur)
+    local x = st[cur][cf]
+    cur, cf = x.prev, x.pf
   end
-  if not prev[dest] then return shortestPath(from, dest) end
-  local path, cur = {}, dest
-  while cur ~= from do table.insert(path, 1, cur); cur = prev[cur] end
   return path
 end
 
@@ -670,7 +688,7 @@ function startOfTurn(firstTurn)
       end
     end
   end
-  for _, g in ipairs(S.agents) do g.moved = false; g.acted = false; g.mvUsed = 0 end
+  for _, g in ipairs(S.agents) do g.moved = false; g.acted = false; g.mvUsed = 0; g.roadUsed = 0 end
   S.prio, S.first = nil, nil
   clog("=== Turn " .. S.turn .. " begins." .. (firstTurn and "" or " Owned territories collect income.") .. " ===")
   -- per-side turn summary and history
@@ -1275,7 +1293,8 @@ function moveAgent(g, dest)
   local left = agentMoveLeft(g)
   if left <= 0 and not S.settings.override then return "This agent has used all its movement this turn." end
   if dest == g.loc then return "It's already there." end
-  local dist = reachDist(g.loc, left, g.type == "Supply Wagon")
+  local free = agentRoadFree(g)
+  local dist, roadsLeft = reachDist(g.loc, left, g.type == "Supply Wagon", free)
   if not dist[dest] and not S.settings.override then
     return tname(dest) .. " is out of range (" .. (left == math.floor(left) and left or string.format("%.1f", left)) .. " movement left)."
   end
@@ -1289,6 +1308,7 @@ function moveAgent(g, dest)
   if stopAt then dest = stopAt end
   g.loc = dest
   g.mvUsed = (g.mvUsed or 0) + cost
+  g.roadUsed = (g.roadUsed or 0) + math.max(0, free - (roadsLeft[dest] or free))
   -- leaving blocked roads or running into a blockage ends its move; so does running out of movement
   if leave == "slow" or stopAt or agentMoveLeft(g) < 0.5 then g.moved = true end
   if leave then afterLeave(from, leave) end
@@ -2173,9 +2193,9 @@ end
 --   g.route = { start = n, on = false, idx = 1,
 --     legs = { { depart = { k, a }, steps = { n, ... }, acts = { { k = "none"|"load"|"unload", a = amount or nil }, ... } }, ... } }
 --   depart happens at the turn's starting territory before the wagon leaves (or while it stays put); acts[i] happens at stop i.
---   Each leg is one turn's movement. Leaving a territory costs 1 (0.5 with Roads); a leg may spend up to 3.
+--   Each leg is one turn's movement. Leaving a territory costs 1 (none with Roads, up to 3 times a turn); a leg may spend up to 3.
 -- ===================================================================
-local function stepCost(from, to) return stepCostFor(from, to, true) end
+local function stepCost(from, to, free) return stepCostFor(from, to, true, free == nil and ROAD_FREE_OTHER or free) end
 
 local function noAct() return { k = "none" } end
 
@@ -2242,11 +2262,12 @@ end
 -- Checks a leg against the map as it is now. Returns true or an error string.
 function validateLeg(route, k)
   local here = legStart(route, k)
-  local spent = 0
+  local spent, free = 0, ROAD_FREE_OTHER
   for i, n in ipairs(route.legs[k].steps) do
     if not isAdjacent(here, n) then return "Turn " .. k .. ", move " .. i .. ": " .. NAMES[n] .. " doesn't border " .. NAMES[here] .. "." end
-    spent = spent + stepCost(here, n)
-    if spent > AGENTS[WAGON].move + 1e-6 then return "Turn " .. k .. " moves too far (" .. AGENTS[WAGON].move .. " movement a turn; entering or leaving Neutral land costs 2)." end
+    local c; c, free = stepCost(here, n, free)
+    spent = spent + c
+    if spent > AGENTS[WAGON].move + 1e-6 then return "Turn " .. k .. " moves too far (" .. AGENTS[WAGON].move .. " movement a turn; leaving Roads is free up to 3 times, entering or leaving Neutral land costs 2)." end
     here = n
   end
   return true
@@ -2275,15 +2296,16 @@ end
 function stepOptions(route, k, s)
   local leg = route.legs[k]
   local here = legStart(route, k)
-  local spent = 0
+  local spent, free = 0, ROAD_FREE_OTHER
   for i = 1, s - 1 do
     local n = leg.steps[i]
     if not n then return {} end
-    spent = spent + stepCost(here, n)
+    local c; c, free = stepCost(here, n, free)
+    spent = spent + c
     here = n
   end
   local out = {}
-  for _, v in ipairs(ADJ[here] or {}) do if spent + stepCost(here, v) <= AGENTS[WAGON].move + 1e-6 then out[#out + 1] = v end end
+  for _, v in ipairs(ADJ[here] or {}) do if spent + stepCost(here, v, free) <= AGENTS[WAGON].move + 1e-6 then out[#out + 1] = v end end
   return out
 end
 
@@ -2504,7 +2526,7 @@ function armyRouteProblems(r)
   return out
 end
 
--- Cheapest way from a to b for side: Roads make leaving cheaper; enemy land costs more and enemy armies are avoided.
+-- Cheapest way from a to b for side: Roads make leaving free; enemy land costs more and enemy armies are avoided.
 function supplyPath(a, b, side)
   if a == b then return {} end
   local dist, prev, done = { [a] = 0 }, {}, {}
@@ -2565,17 +2587,17 @@ function runArmySupply(g, r)
     if (g.carried or 0) <= 0 and g.loc == r.depot and (S.terr[r.depot].stock or 0) > 0 then doLoad(g) end
   end
   act()
-  local spent, budget = 0, AGENTS[WAGON].move
+  local spent, budget, free = 0, AGENTS[WAGON].move, ROAD_FREE_OTHER
   local leave = leaveBlock(g.loc, g, false)
   for _ = 1, 12 do
     local target = ((g.carried or 0) > 0) and a.loc or r.depot
     if g.loc == target then break end
     local path = supplyPath(g.loc, target, g.side)
     if not path or #path == 0 or isSnowed(path[1]) then break end
-    local c = stepCost(g.loc, path[1])
+    local c, f2 = stepCost(g.loc, path[1], free)
     if leave == "slow" then c = budget end   -- blocked roads: leaving takes the whole move
     if spent + c > budget + 1e-6 then break end
-    spent = spent + c
+    spent, free = spent + c, f2
     local was = g.loc
     g.loc = path[1]
     table.insert(visited, g.loc)
@@ -2927,7 +2949,7 @@ function moveRangeFor(unit, isArmy, budget)
     for _, m in ipairs(ADJ[unit.loc] or {}) do table.insert(out, m) end
     return out
   end
-  return reachable(unit.loc, budget, (not isArmy) and unit.type == "Supply Wagon")
+  return reachable(unit.loc, budget, (not isArmy) and unit.type == "Supply Wagon", (not isArmy) and agentRoadFree(unit) or nil)
 end
 
 -- Campaigns from before the Chronicle kept action records: rebuild them from the log once.
@@ -8156,7 +8178,7 @@ local function tabAgents(pk)
     local k = { col({ txt(title, { size = 24, style = "Bold", color = C.gold, h = 34 }), txt(sub, { size = 13, color = C.dim2, h = 20 }) }, nil, 2) }
     if not g.army then
       local dests = {}
-      for _, n in ipairs(reachable(g.loc, agentMoveLeft(g))) do table.insert(dests, terrOpt(n)) end
+      for _, n in ipairs(reachable(g.loc, agentMoveLeft(g), g.type == "Supply Wagon", agentRoadFree(g))) do table.insert(dests, terrOpt(n)) end
       if #dests == 0 then dests = { "(nowhere in range)" } end
       table.insert(k, row({ txt("Move to", { w = 70, color = C.dim, size = 13 }), dropdown(pk, "gDest", dests),
                             btn(pk, "Move agent", { w = 130, enabled = stageAllowed("Logistics") and not g.moved }, "gmove", g.id) }, 32))
@@ -11064,7 +11086,7 @@ function updateHints(pk)
   elseif u.tab == "Agents" and u.sel.agent then
     local g = agentById(u.sel.agent)
     if g and canSee(pk, g.side) and not g.army and g.loc then
-      return showRange(g.side, g.loc, reachable(g.loc, agentMoveLeft(g)), "g" .. g.id .. ":" .. g.loc)
+      return showRange(g.side, g.loc, reachable(g.loc, agentMoveLeft(g), g.type == "Supply Wagon", agentRoadFree(g)), "g" .. g.id .. ":" .. g.loc)
     end
   elseif u.tab == "Wagons" and u.sel.wagon then
     local g = agentById(u.sel.wagon)
@@ -11078,7 +11100,7 @@ function updateHints(pk)
         return showRange(g.side, g.loc, path, "ws" .. g.id .. ":" .. g.loc .. ":" .. tostring(tgt))
       end
       if g.route then return showRoute(g, "w" .. g.id .. ":" .. JSON.encode(g.route.legs) .. ":" .. tostring(g.route.start)) end
-      return showRange(g.side, g.loc, reachable(g.loc, AGENTS["Supply Wagon"].move), "wr" .. g.id .. ":" .. g.loc)
+      return showRange(g.side, g.loc, reachable(g.loc, AGENTS["Supply Wagon"].move, true), "wr" .. g.id .. ":" .. g.loc)
     end
   end
   clearHints()
