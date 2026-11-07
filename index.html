@@ -476,7 +476,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=be30a37222').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=f6eb78013a').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -675,6 +675,7 @@ function throwDiceAsync(specs) { return new Promise(res => { throwDice(specs, nu
 let BOOT_TH = 'Eriador';
 try { const sv = (/"guest"/.test(localStorage.getItem('eriador.net') || '') && localStorage.getItem('eriador.online')) || localStorage.getItem(SAVE_KEY); if (sv) BOOT_TH = ((JSON.parse(sv) || {}).settings || {}).theatre || 'Eriador'; } catch (e) {}
 const MAP_KEY = (BOOT_TH === 'Rohan' || BOOT_TH === 'Gondor') ? BOOT_TH : 'Eriador', ASSET = MAP_KEY === 'Eriador' ? '' : MAP_KEY.toLowerCase() + '/';
+const DRESS = !/nodress/.test(location.search);   // painted territories and table dressing
 const MAP = await fetch(ASSET + 'map.json').then(r => r.json()); tick();
 const T = MAP.terr;
 function loadImg(src) { return new Promise((res, rej) => { const i = new Image(); i.onload = () => { tick(); res(i); }; i.onerror = rej; i.src = src; }); }
@@ -729,20 +730,127 @@ const overlay = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: ovTex, tr
 overlay.renderOrder = 1; scene.add(overlay);
 const tableTop = new THREE.Mesh(new THREE.BoxGeometry(BW + 60, 1, BD + 50), new THREE.MeshStandardMaterial({ color: '#3a2918', roughness: 0.75 }));
 tableTop.position.set(0, -0.55, 8); tableTop.receiveShadow = true; scene.add(tableTop);
+if (DRESS) setTimeout(() => dressTable(), 0);
+function dressTable() {
+  const brass = new THREE.MeshStandardMaterial({ color: '#b48a3c', metalness: 0.85, roughness: 0.32 });
+  const darkBrass = new THREE.MeshStandardMaterial({ color: '#7a5a26', metalness: 0.8, roughness: 0.45 });
+  const wax = new THREE.MeshStandardMaterial({ color: '#efe3c4', roughness: 0.6 });
+  const add = (m, x, y, z, cast = true) => { m.position.set(x, y, z); m.castShadow = cast; m.receiveShadow = true; scene.add(m); return m; };
+  const z0 = BD / 2, x0 = BW / 2;
+  // candles in brass holders, with a warm, flickering light
+  const flames = [];
+  const candle = (x, z, h) => {
+    add(new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.8, 0.5, 28), brass), x, 0.25, z);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 1.2, 20), darkBrass), x, 1.0, z);
+    add(new THREE.Mesh(new THREE.TorusGeometry(2.2, 0.35, 8, 20, Math.PI * 1.2), brass), x + 3.6, 0.9, z).rotation.set(0, 0, Math.PI / 2);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.12, h, 22), wax), x, 1.6 + h / 2, z);
+    for (let i = 0; i < 3; i++) { const d = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 0.6 + Math.random() * 1.4, 4, 8), wax), x + Math.cos(i * 2.1) * 1.05, 1.6 + h - 0.7 - Math.random(), z + Math.sin(i * 2.1) * 1.05); }
+    add(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.6, 6), new THREE.MeshBasicMaterial({ color: '#1a1410' })), x, 1.6 + h + 0.3, z, false);
+    const flame = add(new THREE.Mesh(new THREE.SphereGeometry(0.42, 16, 12), new THREE.MeshBasicMaterial({ color: '#ffd27a' })), x, 1.6 + h + 0.95, z, false);
+    flame.scale.set(1, 2.1, 1);
+    const core = add(new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 10), new THREE.MeshBasicMaterial({ color: '#fff6dc' })), x, 1.6 + h + 0.8, z, false); core.scale.set(1, 1.8, 1);
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: '#ffb35a', transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
+    halo.scale.set(7, 7, 1); halo.position.set(x, 1.6 + h + 1, z); scene.add(halo);
+    const light = new THREE.PointLight('#ffb062', 260, 95, 1.7); light.position.set(x, 1.6 + h + 1.6, z); scene.add(light);
+    flames.push({ flame, light, halo, base: 260, ph: Math.random() * 10 });
+  };
+  candle(-x0 + 22, -z0 - 9, 9); candle(x0 + 15, -z0 - 2, 7); candle(x0 + 20, 26, 5.5);
+  // brass weights holding the map's corners
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const x = sx * (x0 - 2.2), z = sz * (z0 - 2.2), y = hAt(sx < 0 ? 0.01 : 0.99, sz < 0 ? 0.01 : 0.99);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.9, 1.6, 6), brass), x, y + 0.8, z);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(1.5, 2.2, 0.6, 6), darkBrass), x, y + 1.9, z);
+    add(new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 12), brass), x, y + 2.7, z);
+  }
+  // inkpot and quill
+  const glass = new THREE.MeshStandardMaterial({ color: '#23344a', roughness: 0.08, metalness: 0.35 });
+  const ix = x0 + 14, iz = -24;
+  add(new THREE.Mesh(new THREE.CylinderGeometry(2.4, 3.0, 3.2, 24), glass), ix, 1.6, iz);
+  add(new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.6, 1.0, 20), glass), ix, 3.6, iz);
+  add(new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.22, 8, 20), brass), ix, 4.1, iz).rotation.x = Math.PI / 2;
+  const quill = new THREE.Group(); quill.position.set(ix, 3.9, iz); quill.rotation.set(-0.35, 0.4, 0.45); quill.scale.setScalar(0.75); scene.add(quill);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.14, 16, 8), new THREE.MeshStandardMaterial({ color: '#e8dcc0', roughness: 0.5 })); shaft.position.y = 6; shaft.castShadow = true; quill.add(shaft);
+  const vane = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), new THREE.MeshStandardMaterial({ color: '#cfc6b4', roughness: 0.9, side: THREE.DoubleSide }));
+  vane.scale.set(1.25, 6.2, 0.08); vane.position.set(0.55, 9.5, 0); vane.castShadow = true; quill.add(vane);
+  // coins and a few spare tokens
+  const gold = new THREE.MeshStandardMaterial({ color: '#d4a640', metalness: 0.9, roughness: 0.3 });
+  for (let i = 0; i < 7; i++) add(new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.35, 0.28, 26), gold), ix + 1 + Math.sin(i) * 0.25, 0.14 + i * 0.29, iz + 13 + Math.cos(i * 1.7) * 0.25);
+  for (const [dx, dz] of [[4.2, 15.5], [2.6, 17.4]]) add(new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.35, 0.28, 26), gold), ix + dx, 0.14, iz + dz).rotation.set(0.05, 0, 0.04);
+  const tok = (c, x, z) => { const m = add(new THREE.Mesh(new THREE.CylinderGeometry(1.9, 1.9, 0.45, 32), new THREE.MeshStandardMaterial({ color: c, roughness: 0.55 })), x, 0.23, z);
+    add(new THREE.Mesh(new THREE.TorusGeometry(1.55, 0.12, 6, 28), gold), x, 0.48, z).rotation.x = Math.PI / 2; return m; };
+  tok('#2f6b45', ix - 1, iz + 22); tok('#8e2f27', ix + 3.5, iz + 25); tok('#2f6b45', ix + 1, iz + 27.5);
+  // a rolled map, tied with cord
+  const parch = new THREE.MeshStandardMaterial({ color: '#d8c49a', roughness: 0.9 });
+  const roll = add(new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 24, 24), parch), 18, 1.5, -z0 - 9); roll.rotation.set(0, 0, Math.PI / 2 + 0.06);
+  for (const off of [-6, 6]) { const c = add(new THREE.Mesh(new THREE.TorusGeometry(1.55, 0.14, 6, 24), new THREE.MeshStandardMaterial({ color: '#6a2a1a' })), 18 + off, 1.5, -z0 - 9); c.rotation.y = Math.PI / 2; }
+  // candlelight flicker
+  (function flicker(t) {
+    for (const f of flames) { const n = Math.sin(t / 90 + f.ph) * 0.5 + Math.sin(t / 37 + f.ph * 2) * 0.3 + Math.sin(t / 13 + f.ph) * 0.2;
+      f.light.intensity = f.base * (0.88 + 0.12 * n); f.flame.scale.set(1 + 0.06 * n, 2.1 + 0.25 * n, 1 + 0.06 * n); f.halo.material.opacity = 0.5 + 0.08 * n; }
+    requestAnimationFrame(flicker);
+  })(0);
+}
+function glowTex() {
+  if (glowTex.t) return glowTex.t;
+  const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+  const g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(255,220,160,1)'); g.addColorStop(0.35, 'rgba(255,170,80,0.45)'); g.addColorStop(1, 'rgba(255,140,40,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 128, 128); glowTex.t = new THREE.CanvasTexture(c); return glowTex.t;
+}
 const rim = new THREE.Mesh(new THREE.BoxGeometry(BW + 1.6, 0.5, BD + 1.6), new THREE.MeshStandardMaterial({ color: '#241911', roughness: 0.6 })); rim.position.y = -0.2; scene.add(rim);
 
 // overlay: owner colours, the reachable glow, battles, hover and selection outlines
 let hoverId = 0, selTerr = 0, reach = null, reachFrom = 0;
 const OWN = { Good: 'rgba(93,187,122,0.20)', Evil: 'rgba(224,106,90,0.22)' };
 function poly(o) { ovx.beginPath(); for (const p of o) p.forEach(([u, v], i) => (i ? ovx.lineTo(u * OV.width, v * OV.height) : ovx.moveTo(u * OV.width, v * OV.height))); ovx.closePath(); }
+const WASH = { Good: [38, 112, 64], Evil: [158, 44, 34] };
+let washKey = '', washCv = null, washPat = null;
+function washPattern() {
+  if (washPat) return washPat;
+  // soft blotches and grain, used to mottle the wash like pigment settling into paper
+  const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d');
+  const small = document.createElement('canvas'); small.width = small.height = 24; const sx = small.getContext('2d');
+  for (let i = 0; i < 24; i++) for (let j = 0; j < 24; j++) { sx.fillStyle = `rgba(0,0,0,${Math.random() * 0.9})`; sx.fillRect(i, j, 1, 1); }
+  x.imageSmoothingEnabled = true; x.filter = 'blur(10px)'; x.drawImage(small, -40, -40, 592, 592); x.filter = 'none';
+  for (let i = 0; i < 9000; i++) { x.fillStyle = `rgba(0,0,0,${Math.random() * 0.35})`; x.fillRect(Math.random() * 512, Math.random() * 512, 1.5, 1.5); }
+  washPat = c; return c;
+}
+function paintWash() {
+  const key = S ? S.terr.map(t => t.owner[0]).join('') : '';
+  if (key === washKey && washCv) return washCv;
+  washKey = key;
+  washCv = washCv || document.createElement('canvas'); washCv.width = OV.width; washCv.height = OV.height;
+  const x = washCv.getContext('2d'), pat = x.createPattern(washPattern(), 'repeat');
+  const path = (o) => { x.beginPath(); for (const p of o) p.forEach(([u, v], i) => (i ? x.lineTo(u * OV.width, v * OV.height) : x.moveTo(u * OV.width, v * OV.height))); x.closePath(); };
+  x.clearRect(0, 0, washCv.width, washCv.height);
+  const tmp = document.createElement('canvas'), y = tmp.getContext('2d'), grain = washPattern();
+  for (const k of Object.keys(T)) {
+    const t = S && S.terr[+k - 1], c = t && WASH[t.owner]; if (!c) continue;
+    // work only on this territory's box, with room for the blurred edge
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const p of T[k].outline) for (const [u, v] of p) { x0 = Math.min(x0, u * OV.width); x1 = Math.max(x1, u * OV.width); y0 = Math.min(y0, v * OV.height); y1 = Math.max(y1, v * OV.height); }
+    const pad = 40; x0 = Math.floor(x0 - pad); y0 = Math.floor(y0 - pad); tmp.width = Math.ceil(x1 + pad) - x0; tmp.height = Math.ceil(y1 + pad) - y0;
+    const tp = () => { y.beginPath(); for (const p of T[k].outline) p.forEach(([u, v], i) => (i ? y.lineTo(u * OV.width - x0, v * OV.height - y0) : y.moveTo(u * OV.width - x0, v * OV.height - y0))); y.closePath(); };
+    y.save(); tp(); y.clip();
+    y.fillStyle = `rgba(${c},0.17)`; y.fill();                                   // the thin wash
+    y.filter = 'blur(16px)'; y.lineWidth = 60; y.strokeStyle = `rgba(${c},0.42)`; tp(); y.stroke();   // pigment pooled at the edge
+    y.filter = 'blur(2px)'; y.lineWidth = 7; y.strokeStyle = `rgba(${c},0.5)`; tp(); y.stroke();       // the dried tide-line
+    y.filter = 'none';
+    y.globalCompositeOperation = 'destination-out'; y.globalAlpha = 0.55; y.fillStyle = y.createPattern(grain, 'repeat');
+    y.setTransform(1, 0, 0, 1, ((+k * 137) % 512) - x0, ((+k * 251) % 512) - y0); y.fillRect(x0 - 512, y0 - 512, tmp.width + 1024, tmp.height + 1024); y.setTransform(1, 0, 0, 1, 0, 0);
+    y.restore();
+    x.drawImage(tmp, x0, y0);
+  }
+  return washCv;
+}
 function drawOverlay() {
   ovx.clearRect(0, 0, OV.width, OV.height);
   try { drawWear(); } catch (e) { /* not ready yet */ }
+  if (DRESS && S) try { ovx.drawImage(paintWash(), 0, 0); } catch (e) { console.error(e); }
   const fought = S ? foughtNow() : new Set(), dry = S ? droughtSides() : new Set();
   for (const k of Object.keys(T)) {
     const n = +k, t = S && S.terr[n - 1];
     const own = t && (window.__fadeHold && window.__fadeHold.has(n) ? window.__fadeHold.get(n) : t.owner);
-    if (t && OWN[own]) { poly(T[k].outline); ovx.fillStyle = OWN[own]; ovx.fill(); }
+    if (t && OWN[own] && !DRESS) { poly(T[k].outline); ovx.fillStyle = OWN[own]; ovx.fill(); }
     if (t && dry.has(t.owner)) { poly(T[k].outline); ovx.fillStyle = 'rgba(170,120,40,0.28)'; ovx.fill(); }
     if (S && S.battleAt.includes(n) && !fought.has(n)) { poly(T[k].outline); ovx.lineWidth = 7; ovx.setLineDash([22, 12]); ovx.strokeStyle = 'rgba(240,120,90,0.95)'; ovx.stroke(); ovx.setLineDash([]); }
     if (reach && reach.all.has(n) && n !== reachFrom) {
@@ -4128,7 +4236,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=be30a37222').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=f6eb78013a').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4336,7 +4444,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=be30a37222').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=f6eb78013a').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
