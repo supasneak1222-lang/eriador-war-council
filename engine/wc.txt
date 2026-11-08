@@ -4092,7 +4092,8 @@ function applyEventKey(side, key)
 end
 
 -- ---------- choices some events offer ----------
-function hireMercs(side, n, name, leader, list)
+function hireMercs(side, n, d)
+  d = d or {}
   local e = S.events and S.events.t == S.turn and S.events[side]
   if not e or e.pending ~= "mercs" then return "There's no mercenary company to hire right now." end
   n = tonumber(n)
@@ -4100,9 +4101,11 @@ function hireMercs(side, n, name, leader, list)
   local cost = ARMY_COST[400][1]
   if S.terr[n].stock < cost then return NAMES[n] .. " needs " .. cost .. " RP." end
   S.terr[n].stock = S.terr[n].stock - cost
+  local name = d.name
   local a = { id = newId(), side = side, name = (name and name ~= "") and name or ("Mercenary Company of " .. NAMES[n]), size = 400,
-              leader = leader or "", named = false, list = list or "", merc = true, cavalry = false, canMarch = false, allied = false,
-              units = "", loc = n, status = "ready", buildLeft = 0, damage = 0, carried = 0, seenLeader = {}, seenUnits = {}, wounds = {} }
+              leader = d.leader or "", named = d.named and true or false, list = d.list or "", merc = true, cavalry = d.cavalry and true or false,
+              canMarch = d.canMarch and true or false, allied = false, units = d.units or "", roster = d.roster,
+              loc = n, status = "ready", buildLeft = 0, damage = 0, carried = 0, paid = cost, raisedAt = n, seenLeader = {}, seenUnits = {}, wounds = {} }
   table.insert(S.armies, a)
   numberArmy(a)
   e.pending = nil
@@ -12033,7 +12036,11 @@ function uiRun(player, arg)
     else u.confirm = "brestore"; keepConfirm = true end
   elseif a == "prio" then r = rollPriority(); say(pk, r)
   elseif a == "rule" then r = declareRule(p1, p2); say(pk, r, "Special rule used.")
-  elseif a == "evmerc" then r = hireMercs(p1, numOf(f.evMercT), f.evMercName, f.evMercLeader, f.evMercList); say(pk, r, "Mercenaries hired.")
+  elseif a == "evmerc" then
+    r = hireMercs(p1, numOf(f.evMercT), { name = f.evMercName, leader = f.evMercLeader, list = f.evMercList, units = f.evMercUnits,
+                                          named = f.evMercNamed == "True", cavalry = f.evMercCav == "True", canMarch = f.evMercMarch == "True", roster = u.pasteRoster })
+    if r == true then u.pasteRoster = nil; if u.paste then u.paste.r_paste = nil end end
+    say(pk, r, "Mercenaries hired.")
   elseif a == "evtroll" then r = raidTrollHoard(p1); say(pk, r, "The hoard was raided.")
   elseif a == "evno" then r = declineEvent(p1); say(pk, r, "Done.")
   elseif a == "sail" then r = sailArmy(armyById(numOf(p1)), numOf(p2)); say(pk, r, "Set sail.")

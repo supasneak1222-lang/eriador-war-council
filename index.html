@@ -476,7 +476,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=e84709e761').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=c27ceb09f1').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -1507,9 +1507,10 @@ function renderLeft() {
   el.querySelectorAll('[data-bf]').forEach(x => x.oninput = x.onchange = () => { bForm[x.dataset.bf] = x.type === 'checkbox' ? x.checked : x.value; if (/^(atk|def|lost_\d+|in_\d+|win|out_\d+|ret_\d+)$/.test(x.dataset.bf)) renderLeft(); });
   const apply = el.querySelector('#bApply'); if (apply) apply.onclick = applyBattle;
   el.querySelectorAll('[data-ev]').forEach(x => x.onclick = () => {
-    const f = {}; for (const k of ['evMercT', 'evMercName', 'evMercLeader', 'evMercList', 'evPayT', 'evArmy']) if ($(k)) f[k] = $(k).value;
+    const f = {}; for (const k of ['evPayT', 'evArmy']) if ($(k)) f[k] = $(k).value;
     act(x.dataset.ev, f);
   });
+  wireMerc(el);
   const bp = el.querySelector('#bPrio'); if (bp) bp.onclick = () => act('bprio', battleFields());
   const ba = el.querySelector('#bAgain'); if (ba) ba.onclick = () => { act('bprompt'); battleCalled = {}; showPopups(); };
   const bany = el.querySelector('#bAny'); if (bany) bany.onclick = () => openBattle(+$('bAnyT').value);
@@ -2130,9 +2131,7 @@ function turnPanel() {
       h += `<div class="item" style="cursor:default;display:block"><span class="pill ${sd}">${sd}</span><b>${esc(e.name)}</b><br><span style="color:var(--dim);font-size:14px">${esc(e.text)}</span>${e.detail ? `<br><span style="font-size:14.5px">${esc(e.detail)}</span>` : ''}`;
       if (e.pending === 'mercs' && mine) {
         const ts = S.terr.map((t, i) => i + 1).filter(n => S.terr[n - 1].owner === sd && (S.terr[n - 1].stock || 0) >= S.armyCost['400'][0]);
-        h += `<div class="form" style="margin-top:6px">${ts.length ? `<select id="evMercT">${ts.map(n => opt(tname(n), tname(n))).join('')}</select>` : note('No territory of yours has the RP.', true)}
-          <input id="evMercName" placeholder="Army name (optional)"><div class="row"><input id="evMercLeader" placeholder="Leader"><input id="evMercList" placeholder="List"></div>
-          <div class="row"><button class="gold" ${ts.length ? '' : 'disabled'} data-ev="evmerc~${sd}">Hire them (${S.armyCost['400'][0]} RP)</button><button data-ev="evno~${sd}">Let them go</button></div></div>`;
+        h += `<div class="form" style="margin-top:6px">${mercFormHtml(sd, ts)}</div>`;
       } else if (e.pending === 'troll' && mine) {
         h += `<div class="row" style="margin-top:6px"><button class="gold" data-ev="evtroll~${sd}">Raid the hoard (D6, 4+)</button><button data-ev="evno~${sd}">Leave it alone</button></div>`;
       } else if (PICK_EVENTS[e.pending] && mine) {
@@ -2445,6 +2444,42 @@ const EVENT_ART = {
   ritual: '<circle cx="32" cy="32" r="20" fill="none" stroke="#b5402f" stroke-width="3"/><path d="M32 12l12 36-30-22h36l-30 22z" fill="none" stroke="#ff8a3a" stroke-width="2"/><circle cx="32" cy="32" r="4" fill="#ffd27a"/>',
   eclipse: '<circle cx="32" cy="32" r="18" fill="#ffb347"/><circle cx="36" cy="30" r="17" fill="#120d08"/><circle cx="32" cy="32" r="22" fill="none" stroke="#ff7a3a" stroke-width="1.5" opacity=".7"/>',
 };
+// Hiring the Passing Mercenaries: the same details as raising an army, kept while the panel redraws
+let mForm = {};
+function mercFormHtml(sd, ts) {
+  if (!ts.length) return note('No territory of yours has the RP.', true) + `<div class="row"><button data-ev="evno~${sd}">Let them go</button></div>`;
+  const f = mForm, cb = (k, l) => `<label><input type="checkbox" data-mf="${k}" ${f[k] ? 'checked' : ''}> ${l}</label>`;
+  return `<select data-mf="evMercT">${ts.map(n => opt(tname(n), tname(n), f.evMercT === tname(n))).join('')}</select>
+    <textarea data-mf="paste" rows="2" class="ta" placeholder="Paste a List Builder share link or export (optional)">${esc(f.paste || '')}</textarea>
+    <div class="row"><button data-mpaste="${sd}">Fill from the list</button><a class="rule" href="https://mesbg-list-builder.com" target="_blank" rel="noopener">Open the List Builder</a></div>
+    <input data-mf="evMercName" placeholder="Army name (optional)" value="${esc(f.evMercName || '')}">
+    <div class="row"><input data-mf="evMercLeader" placeholder="Leader" value="${esc(f.evMercLeader || '')}"><input data-mf="evMercList" placeholder="List" value="${esc(f.evMercList || '')}"></div>
+    <input data-mf="evMercUnits" placeholder="Units / notes (hidden from the enemy)" value="${esc(f.evMercUnits || '')}">
+    <div class="row">${cb('evMercNamed', 'Named hero leads it')}${cb('evMercCav', 'Cavalry only')}${cb('evMercMarch', 'Heroic March')}</div>
+    ${f.roster ? `<small style="color:var(--dim)">List read: ${esc(f.roster)}</small>` : ''}
+    <div class="row"><button class="gold" data-mhire="${sd}">Hire them (${S.armyCost['400'][0]} RP)</button><button data-ev="evno~${sd}">Let them go</button></div>`;
+}
+function wireMerc(root) {
+  root.querySelectorAll('[data-mf]').forEach(x => x.oninput = x.onchange = () => { mForm[x.dataset.mf] = x.type === 'checkbox' ? x.checked : x.value; });
+  root.querySelectorAll('[data-mpaste]').forEach(b => b.onclick = async () => {
+    const text = await listText(mForm.paste || ''); if (!text) { toast('Paste a list first.', 'err'); return; }
+    const r = act('pasteread~r_paste', { r_paste: text }); if (!r.ok) return;
+    act('pasteuse', { aName: mForm.evMercName || '', aSize: '400' }, true);
+    const F = JSON.parse(luaCall('appForm')).f;
+    Object.assign(mForm, { evMercName: mForm.evMercName || F.aName || '', evMercLeader: F.aLeader || '', evMercList: F.aList || '', evMercUnits: F.aUnits || '', roster: r.msg ? r.msg.replace(/^List read: /, '').replace(/\.$/, '') : 'yes' });
+    if (/wolf ?pack/i.test(F.aList || '')) mForm.evMercCav = true;
+    if (F.aSize && F.aSize !== '400') toast(`That list is ${F.aSize} pts: the mercenary company is a 400 pt army.`, 'err');
+    for (const x of document.querySelectorAll('[data-mf]')) { const k = x.dataset.mf; if (x.type === 'checkbox') x.checked = !!mForm[k]; else if (k !== 'evMercT' && k !== 'paste') x.value = mForm[k] || ''; }
+    for (const b2 of document.querySelectorAll('[data-mpaste]')) { let tag = b2.parentNode.nextElementSibling; if (!tag || !tag.classList.contains('mread')) { tag = document.createElement('small'); tag.className = 'mread'; tag.style.color = 'var(--dim)'; b2.parentNode.after(tag); } tag.textContent = 'List read: ' + mForm.roster; }
+  });
+  root.querySelectorAll('[data-mhire]').forEach(b => b.onclick = () => {
+    const f = mForm, tf = (x) => x ? 'True' : 'False', sd = b.dataset.mhire;
+    const t = f.evMercT || (root.querySelector('[data-mf="evMercT"]') || {}).value;
+    const r = act('evmerc~' + sd, { evMercT: t, evMercName: f.evMercName || '', evMercLeader: f.evMercLeader || '', evMercList: f.evMercList || '', evMercUnits: f.evMercUnits || '',
+                                    evMercNamed: tf(f.evMercNamed), evMercCav: tf(f.evMercCav), evMercMarch: tf(f.evMercMarch) });
+    if (r.ok) { mForm = {}; if (!$('popup').hidden && root === $('popup')) $('popup').hidden = true; }
+  });
+}
 // Rohan's events that ask a side to choose: pay from a territory, pick an army, or both
 const PICK_EVENTS = {
   eorl: { pay: true, go: 'Celebrate (100 RP)', no: 'Keep the RP' },
@@ -2468,8 +2503,7 @@ function eventCard(sd, e, i) {
   let choice = '';
   if (e.pending === 'mercs' && mine) {
     const ts = S.terr.map((t, k) => k + 1).filter(n => S.terr[n - 1].owner === sd && (S.terr[n - 1].stock || 0) >= S.armyCost['400'][0]);
-    choice = `<div class="ec-choice">${ts.length ? `<select id="evMercT">${ts.map(n => opt(tname(n), tname(n))).join('')}</select><input id="evMercName" placeholder="Army name (optional)"><div class="row"><input id="evMercLeader" placeholder="Leader"><input id="evMercList" placeholder="List"></div>` : '<small>No territory of yours has the RP.</small>'}
-      <div class="row"><button class="gold" ${ts.length ? '' : 'disabled'} data-ev="evmerc~${sd}">Hire them</button><button data-ev="evno~${sd}">Let them go</button></div></div>`;
+    choice = `<div class="ec-choice">${mercFormHtml(sd, ts)}</div>`;
   } else if (e.pending === 'troll' && mine) choice = `<div class="ec-choice"><div class="row"><button class="gold" data-ev="evtroll~${sd}">Raid the hoard (4+)</button><button data-ev="evno~${sd}">Leave it</button></div></div>`;
   else if (PICK_EVENTS[e.pending] && mine) choice = `<div class="ec-choice">${pickEventForm(sd, e)}</div>`;
   else if (e.pending) choice = `<div class="ec-choice"><small>Waiting for ${sd} to decide.</small></div>`;
@@ -2547,9 +2581,10 @@ function showPopups() {
 }
 function wirePopup() {
   $('popup').querySelectorAll('[data-ev]').forEach(x => x.onclick = () => {
-    const f = {}; for (const k of ['evMercT', 'evMercName', 'evMercLeader', 'evMercList', 'evPayT', 'evArmy']) if ($(k)) f[k] = $(k).value;
+    const f = {}; for (const k of ['evPayT', 'evArmy']) if ($(k)) f[k] = $(k).value;
     $('popup').hidden = true; act(x.dataset.ev, f);
   });
+  wireMerc($('popup'));
   $('popup').querySelectorAll('[data-pop]').forEach(b => b.onclick = () => {
     const k = b.dataset.pop; $('popup').hidden = true;
     if (k === 'recap') { if (!startRecap($('popup')._items || [])) $('popup').hidden = false; return; }
@@ -4236,7 +4271,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=e84709e761').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=c27ceb09f1').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4444,7 +4479,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=e84709e761').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=c27ceb09f1').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
