@@ -476,7 +476,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=f6eb78013a').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=b860a20b4d').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -682,7 +682,7 @@ function loadImg(src) { return new Promise((res, rej) => { const i = new Image()
 function pixels(img) { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0); return { w: img.width, h: img.height, d: x.getImageData(0, 0, img.width, img.height).data }; }
 const [boardImg, hImg, tImg] = await Promise.all([loadImg(ASSET + 'board.jpg'), loadImg(ASSET + 'height.png'), loadImg(ASSET + 'terr.png')]);
 const HM = pixels(hImg), TM = pixels(tImg);
-const BW = 150, BD = 150 * hImg.height / hImg.width, RELIEF = 3.4;
+const BW = 150, BD = 150 * hImg.height / hImg.width, RELIEF = 7;
 function hAt(u, v) {
   const x = Math.min(HM.w - 1.001, Math.max(0, u * (HM.w - 1))), y = Math.min(HM.h - 1.001, Math.max(0, v * (HM.h - 1)));
   const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0, g = (xx, yy) => HM.d[(yy * HM.w + xx) * 4] / 255;
@@ -1254,7 +1254,7 @@ function pieceHit() { const hits = ray.intersectObjects(grabs(), false); if (!hi
 const _pl = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), _pt = new THREE.Vector3();
 function boardHit() {
   let h = RELIEF * 0.3;
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 12; i++) {
     _pl.constant = -h; if (!ray.ray.intersectPlane(_pl, _pt)) return null;
     const [u, v] = toUV(_pt); if (u < 0 || v < 0 || u > 1 || v > 1) return null;
     const nh = hAt(u, v); if (Math.abs(nh - h) < 0.02) break; h = nh;
@@ -4236,7 +4236,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=f6eb78013a').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=b860a20b4d').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4444,7 +4444,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=f6eb78013a').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=b860a20b4d').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
