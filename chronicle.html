@@ -375,6 +375,32 @@ section > h2::after { content: ""; position: absolute; left: 50%; bottom: -5px; 
 .recrange { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; }
 .recrange select { font: inherit; font-size: 15px; padding: 3px 4px; border: 1px solid var(--rule); background: #fffaf0; color: var(--ink); }
 .repcard.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+/* the end of the war: a banner on the page, a splash when it opens, and a closing card at the end of the replay */
+.vbanner { margin: 4px 0 10px; padding: 14px 18px; text-align: center; border: 1px solid var(--rule); border-top: 5px solid var(--vc); background: linear-gradient(180deg, var(--vsoft), var(--paper-3)); }
+.vbanner .k { font-family: var(--display); font-size: 12px; letter-spacing: .3em; color: var(--gold); }
+.vbanner .t { font-family: var(--deco); font-weight: 700; font-size: 30px; line-height: 1.15; color: var(--vc); margin: 4px 0 2px; }
+.vbanner .n { font-style: italic; color: var(--ink-soft); }
+.vbanner button { margin-top: 8px; font: 600 13px var(--display); letter-spacing: .12em; padding: 7px 14px; border: 1px solid var(--vc); background: var(--paper-3); color: var(--vc); cursor: pointer; }
+#victory { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; background: rgba(20,14,8,.72); opacity: 0; transition: opacity .6s ease; }
+#victory.on { opacity: 1; }
+.vcard { position: relative; width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; text-align: center; padding: 34px 30px 26px; background: var(--paper); border: 2px solid var(--vc); box-shadow: 0 0 0 6px var(--paper), 0 0 0 7px var(--rule), 0 24px 70px rgba(0,0,0,.55); transform: scale(.94); transition: transform .7s cubic-bezier(.2,.9,.25,1.15); }
+#victory.on .vcard, .endcard.on .vcard { transform: scale(1); }
+.vcard .crest { width: 74px; height: 74px; margin: 0 auto 8px; }
+.vcard .k { font-family: var(--display); font-size: 12.5px; letter-spacing: .32em; color: var(--gold); }
+.vcard h2 { font-family: var(--deco); font-weight: 700; font-size: clamp(30px, 6vw, 46px); line-height: 1.05; margin: 8px 0 4px; color: var(--vc); }
+.vcard .who { font-family: var(--display); font-size: 16px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft); }
+.vcard .note { font-style: italic; font-size: 17px; margin: 12px 0 4px; }
+.vcard .orn { color: var(--rule); margin: 14px 0; letter-spacing: .6em; }
+.vcard .stats { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--rule); }
+.vcard .stats div { padding: 9px 6px; border-right: 1px solid var(--rule); }
+.vcard .stats div:last-child { border-right: 0; }
+.vcard .stats b { display: block; font-family: var(--display); font-size: 24px; color: var(--vc); font-variant-numeric: tabular-nums; }
+.vcard .stats span { font-family: var(--display); font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-soft); }
+.vcard .go { margin-top: 18px; font: 700 14px var(--display); letter-spacing: .14em; padding: 10px 22px; border: 0; background: var(--vc); color: var(--paper-3); cursor: pointer; }
+.endcard { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(20,14,8,.45); opacity: 0; transition: opacity .9s ease; pointer-events: none; }
+.endcard.on { opacity: 1; }
+.endcard .vcard { width: min(76%, 600px); }
+@media (max-width: 560px) { .vcard .stats { grid-template-columns: 1fr 1fr; } .vcard .stats div:nth-child(2) { border-right: 0; } .vcard .stats div:nth-child(-n+2) { border-bottom: 1px solid var(--rule); } }
 .repcard .re { font-family: var(--display); font-size: 11px; letter-spacing: .24em; color: var(--gold); }
 .repcard h4 { font-family: var(--display); font-weight: 700; font-size: 25px; line-height: 1.15; margin: 4px 0 2px; }
 .repcard .rm { font-style: italic; font-size: 14px; color: var(--ink-soft); }
@@ -952,7 +978,7 @@ function setupMap() {
     `<svg class="mlayer still" ${vb} aria-hidden="true"><g id="gFront"></g><g id="gRoads"></g></svg>` +
     `<svg class="mlayer ov" ${vb} role="img" aria-label="Map of Eriador showing who holds each territory, armies, conquests and battles"><g id="gRoute"></g><g>${nums}</g><g id="gFoot"></g><g id="gSupply"></g><g id="gWagon"></g><g id="gConq"></g><g id="gActs"></g><g id="gBattle"></g><g id="gArmy"></g><g id="gFx"></g></svg>` +
     `<svg class="mlayer still" ${vb} aria-hidden="true"><g class="mapframe" pointer-events="none"><rect width="${W}" height="${H}" fill="url(#vignette)"/><rect x="0" y="0" width="${W}" height="${H}" fill="none" stroke="#24130a" stroke-width="46" filter="url(#ragged)" opacity=".9"/>${rose}${cartouche}</g></svg>` +
-    `<div class="tip" id="tip" hidden></div><div class="headline" id="headline" aria-live="polite"></div><div class="evcards" id="evcards" aria-live="polite"></div><div class="repcard" id="repcard" aria-live="polite"></div>`;
+    `<div class="tip" id="tip" hidden></div><div class="headline" id="headline" aria-live="polite"></div><div class="evcards" id="evcards" aria-live="polite"></div><div class="repcard" id="repcard" aria-live="polite"></div><div class="endcard" id="endcard" aria-live="polite"></div>`;
   svgBase = $("map").querySelector("svg.base");
   svg = $("map").querySelector("svg.ov");
   gTerr = $("gTerr"); gFront = $("gFront"); gConq = $("gConq");
@@ -2046,6 +2072,7 @@ function openArmy(id) {
 }
 
 function showFrame(idx, animate) {
+  hideEndCard();
   const from = frames[frameIdx];
   frameIdx = Math.max(0, Math.min(frames.length - 1, idx));
   const f = frames[frameIdx];
@@ -2550,6 +2577,49 @@ async function showReportCards(reps, tok) {
   }
   if (tok === seqToken) el.innerHTML = "";
 }
+// ---------- the end of the war ----------
+const V_SIDE = { Good: { c: "var(--good)", soft: "var(--good-soft)", title: "The Free Peoples triumph", crest: "#2f6b45" }, Evil: { c: "var(--evil)", soft: "var(--evil-soft)", title: "The Shadow triumphs", crest: "#8e2f27" } };
+function victoryStats() {
+  const w = state.winner, f = frames[frames.length - 1] || { owners: "" };
+  const held = [...(f.owners || "")].filter((o) => OWN[o] === w).length;
+  const bs = list(state.battles).filter((b) => b.win);
+  return { turns: state.turn, held, total: (f.owners || "").length || list(state.terr).length, won: bs.filter((b) => b.win === w).length, fought: bs.length };
+}
+function victoryCrest(w) {
+  const col = V_SIDE[w].crest;
+  return w === "Good"
+    ? `<svg class="crest" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="29" fill="none" stroke="${col}" stroke-width="2.5"/><path d="M32 10v44M32 20l-10-7M32 20l10-7M32 30l-12-6M32 30l12-6M32 40l-9-5M32 40l9-5" stroke="${col}" stroke-width="2.6" stroke-linecap="round" fill="none"/><g fill="${col}"><circle cx="24" cy="9" r="2"/><circle cx="32" cy="6.5" r="2"/><circle cx="40" cy="9" r="2"/></g></svg>`
+    : `<svg class="crest" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="29" fill="none" stroke="${col}" stroke-width="2.5"/><ellipse cx="32" cy="32" rx="22" ry="11" fill="${col}"/><ellipse cx="32" cy="32" rx="15" ry="7.5" fill="#f2b04a"/><ellipse cx="32" cy="32" rx="2.6" ry="9" fill="#1a0f08"/></svg>`;
+}
+function victoryCardHtml(withButton) {
+  const w = state.winner, V = V_SIDE[w] || V_SIDE.Good, st = victoryStats();
+  return `<div class="vcard" style="--vc:${V.c};--vsoft:${V.soft}">${victoryCrest(w)}
+    <div class="k">THE WAR IN ${esc(String(state.theatre || "Eriador").toUpperCase())} IS OVER</div>
+    <h2>${V.title}</h2><div class="who">${esc(w)} wins the campaign</div>
+    ${state.winnerNote ? `<div class="note">${esc(state.winnerNote)}</div>` : ""}
+    <div class="orn">&#10022; &#10022; &#10022;</div>
+    <div class="stats"><div><b>${st.turns}</b><span>Turns</span></div><div><b>${st.held}<small style="font-size:14px">/${st.total}</small></b><span>Lands held</span></div><div><b>${st.won}</b><span>Battles won</span></div><div><b>${st.fought}</b><span>Battles fought</span></div></div>
+    ${withButton ? '<button class="go" id="vClose">Read the Chronicle</button>' : ""}</div>`;
+}
+function victoryBanner() {
+  const w = state.winner, V = V_SIDE[w] || V_SIDE.Good;
+  return `<div class="vbanner" style="--vc:${V.c};--vsoft:${V.soft}"><div class="k">THE WAR IS OVER</div><div class="t">${V.title}</div>
+    <div class="n">${esc(state.winnerNote || w + " has won the campaign.")}</div><button id="vAgain">Show the victory</button></div>`;
+}
+function showVictory(force) {
+  if (!state || !state.winner || EXPORT) return;
+  const key = "chron.victory." + (state.theatre || "") + "." + state.winner + "." + state.turn;
+  if (!force) { try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, "1"); } catch (e) {} }
+  let el = $("victory"); if (el) el.remove();
+  el = document.createElement("div"); el.id = "victory"; el.innerHTML = victoryCardHtml(true); document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("on"));
+  try { sfx(state.winner === "Good" ? "goodWin" : "evilWin"); } catch (e) {}
+  const close = () => { el.classList.remove("on"); setTimeout(() => el.remove(), 600); };
+  el.onclick = (e) => { if (e.target === el) close(); };
+  el.querySelector("#vClose").onclick = close;
+}
+function showEndCard() { const el = $("endcard"); if (!el || !state.winner) return; el.innerHTML = victoryCardHtml(false); void el.offsetWidth; el.classList.add("on"); try { sfx(state.winner === "Good" ? "goodWin" : "evilWin"); } catch (e) {} }
+function hideEndCard() { const el = $("endcard"); if (el) { el.classList.remove("on"); el.innerHTML = ""; } }
 function hideReportCard() { const el = $("repcard"); if (el) { el.classList.remove("on"); el.innerHTML = ""; } }
 async function battleSequence(from, to, fights, tok) {
   const alive = () => tok === seqToken;
@@ -2711,10 +2781,15 @@ function play() {
   if (playing) { stopPlay(); return; }
   playing = true; $("playBtn").textContent = "Pause";
   const last = () => (playStop != null ? Math.min(playStop, frames.length - 1) : frames.length - 1);
+  hideEndCard();
   if (frameIdx >= last() && playStop == null) showFrame(0, false);
   const step = () => {
     if (!playing) return;
-    if (frameIdx >= last()) { stopPlay(); return; }
+    if (frameIdx >= last()) {
+      // the whole war has played: end on the victory, held for a few seconds (the video records it too)
+      if (state.winner && last() >= frames.length - 1 && !play.ended) { play.ended = true; showEndCard(); playTimer = setTimeout(() => { play.ended = false; stopPlay(); }, 8000); return; }
+      play.ended = false; stopPlay(); return;
+    }
     const d = REDUCED ? 900 : playDelay();
     showFrame(frameIdx + 1, true);
     const t0 = performance.now();
@@ -2728,7 +2803,7 @@ function play() {
   };
   playTimer = setTimeout(step, 600);
 }
-function stopPlay() { playing = false; clearTimeout(playTimer); $("playBtn").textContent = "Play"; }
+function stopPlay() { playing = false; play.ended = false; clearTimeout(playTimer); $("playBtn").textContent = "Play"; }
 
 // ---------- the replay as a video, drawn frame by frame ----------
 // The page plays the whole campaign on a clock of its own, one frame at a time: timers, animations and CSS effects
@@ -3389,13 +3464,15 @@ function render() {
     `Turn ${state.turn} · ${state.stage} stage${state.exported && state.exported !== "Example" ? " · updated " + state.exported : ""}`;
   let banner = "";
   if (isExample) banner += '<div class="notice example"><b>Example campaign.</b> These are sample figures so you can see the page. Press "Update from the War Council" and paste your code to show your own campaign.</div>';
-  if (state.winner) banner += `<div class="notice"><b>${esc(state.winner)} has won the campaign.</b></div>`;
+  if (state.winner) banner += victoryBanner();
   if (state.hidden) banner += '<div class="notice">Hidden information is on, so this page shows public information only: who holds each territory, where armies stand (known by their number until their leader is revealed), battles and reports.</div>';
   $("banner").innerHTML = banner;
+  const vb = $("vAgain"); if (vb) vb.onclick = () => showVictory(true);
   buildFrames();
   if (!EXPORT) fillRecRange();
   FALLEN = computeFallen();
   setupMap();
+  if (state.winner) setTimeout(() => showVictory(false), 900);
   showFrame(frames.length - 1, false);
   $("player").hidden = frames.length < 2;
   renderTimeline();

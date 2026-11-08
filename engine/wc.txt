@@ -685,6 +685,7 @@ function checkVictory()
   for _, side in ipairs(SIDES) do
     if #ownedBy(side) == 0 then
       S.winner = OTHER[side]
+      S.winnerNote = side .. " has lost all of its territory. " .. S.winner .. " is victorious after " .. S.turn .. " turn" .. ((S.turn == 1) and "" or "s") .. "."
       clog("*** " .. side .. " has lost all territory. " .. S.winner .. " wins the campaign! ***", nil, "war")
       broadcastToAll("War Council: " .. S.winner .. " wins the campaign!", { 1, 0.85, 0.4 })
     end
@@ -9780,7 +9781,7 @@ end
 function webExport()
   local hidden = S.settings.hidden and true or false
   local out = { v = 2, pointCap = { base = POINT_CAP_BASE, city = POINT_CAP_CITY }, theatre = S.settings.theatre or "Eriador", turn = S.turn, stage = stageName(), started = S.started and true or false,
-                hidden = hidden, caps = { Good = S.settings.capGood, Evil = S.settings.capEvil }, winner = S.winner,
+                hidden = hidden, caps = { Good = S.settings.capGood, Evil = S.settings.capEvil }, winner = S.winner, winnerNote = S.winnerNote,
                 terr = {}, hist = {}, battles = {}, reports = S.reports or {}, armies = {} }
   pcall(function() out.exported = os.date("%d %b %Y %H:%M") end)
   for n, t in ipairs(S.terr) do
