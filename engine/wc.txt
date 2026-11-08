@@ -1713,6 +1713,13 @@ function battleModifiers(n, atk, def)
   local prio = { Good = 0, Evil = 0 }
   if t.b.fort and t.owner ~= "Neutral" then
     table.insert(lines, "Fortifications: this is a SIEGE. " .. t.owner .. " gains a " .. garrisonSize(n) .. " pt garrison" .. ((garrisonSize(n) > 400) and " (The Hornburg)" or "") .. ".")
+    -- siege supplies: RP for siege equipment only, this battle
+    local ints = function(sz) return math.max(1, math.floor(((sz or 400) - 200) / 200)) end
+    local foe, atkRP, parts = OTHER[t.owner], 0, {}
+    for _, x in ipairs(armiesIn(n, foe)) do local v = 20 * ints(x.size); atkRP = atkRP + v; table.insert(parts, x.name .. " " .. v) end
+    local defRP = 30 * ints(garrisonSize(n))
+    table.insert(lines, "Siege supplies (siege equipment only): " .. foe .. " " .. atkRP .. " RP" .. ((#parts > 1) and (" (" .. table.concat(parts, ", ") .. ")") or "") ..
+         "; " .. t.owner .. " " .. defRP .. " RP from its " .. garrisonSize(n) .. " pt garrison.")
   end
   if t.b.scouttower and t.owner ~= "Neutral" then
     prio[t.owner] = prio[t.owner] + 1
