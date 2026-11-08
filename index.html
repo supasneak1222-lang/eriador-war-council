@@ -476,7 +476,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=4f4167619d').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=3123993668').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -2796,6 +2796,7 @@ function renderSettings() {
       const wantTour = $('nTour') ? $('nTour').checked : false;
       try { localStorage.setItem('eriador.tourOff', wantTour ? '' : '1'); if (wantTour) localStorage.setItem('eriador.tour', '1'); else localStorage.removeItem('eriador.tour'); } catch (e) {}
       act('start', f, true); act('start', f); closeSettings();
+      try { for (const k of ['eriador.wear', 'eriador.wear.Rohan', 'eriador.wear.Gondor']) localStorage.removeItem(k); } catch (e) {} wear = {}; drawOverlay();   // a new campaign starts with unworn roads
       if (wantTour) setTimeout(() => { if (!mapCheck.going) startTour(); }, 900);   // a new theatre reloads the page first; the tour opens after
     } else { act(k, null, true); act(k); renderSettings(); }
   });
@@ -3754,15 +3755,17 @@ function stepTrails(dt, now) {
   for (let i = footSteps.length - 1; i >= 0; i--) { const s = footSteps[i], t = (now - s.t0) / 20000;
     if (t >= 1 || footSteps.length > 600) { scene.remove(s.m); s.m.material.dispose(); footSteps.splice(i, 1); continue; } s.m.material.opacity = 0.55 * (1 - t); }
 }
-let wear = (() => { try { return JSON.parse(localStorage.getItem('eriador.wear') || '{}'); } catch (e) { return {}; } })();
+// each theatre's board keeps its own worn roads (Eriador keeps the original key)
+const WEAR_KEY = MAP_KEY === 'Eriador' ? 'eriador.wear' : 'eriador.wear.' + MAP_KEY;
+let wear = (() => { try { return JSON.parse(localStorage.getItem(WEAR_KEY) || '{}'); } catch (e) { return {}; } })();
 function wearRoad(terrs) {
   for (let i = 0; i < terrs.length - 1; i++) { const a = Math.min(terrs[i], terrs[i + 1]), b = Math.max(terrs[i], terrs[i + 1]); if (a === b) continue; wear[a + '-' + b] = (wear[a + '-' + b] || 0) + 1; }
-  try { localStorage.setItem('eriador.wear', JSON.stringify(wear)); } catch (e) {}
+  try { localStorage.setItem(WEAR_KEY, JSON.stringify(wear)); } catch (e) {}
   drawOverlay();
 }
 function drawWear() {
   for (const [k, c] of Object.entries(wear)) {
-    const [a, b] = k.split('-').map(Number); if (!T[a] || !T[b]) continue;
+    const [a, b] = k.split('-').map(Number); if (!T[a] || !T[b] || !(T[a].adj || []).includes(b)) continue;   // only roads between neighbours
     const pts = [...(T[a].roads[b] || [T[a].hub]), ...(T[b].roads[a] || [T[b].hub]).slice().reverse()];
     ovx.beginPath(); pts.forEach(([u, v], i) => i ? ovx.lineTo(u * OV.width, v * OV.height) : ovx.moveTo(u * OV.width, v * OV.height));
     const al = Math.min(0.55, 0.1 + c * 0.045), w = 9 + Math.min(9, c * 0.8);
@@ -4272,7 +4275,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=4f4167619d').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=3123993668').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4480,7 +4483,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=4f4167619d').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=3123993668').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
