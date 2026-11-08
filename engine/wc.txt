@@ -1895,8 +1895,17 @@ function applyBattle(p)
   if #LS_ == 1 then summary[1] = summary[1] .. " The loser " .. fate(LS_[1]) .. "."
   else for _, x in ipairs(LS_) do table.insert(summary, R(x) .. " " .. fate(x) .. ".") end end
   -- casualties, army by army
+  local leadersLost = {}
+  for id in string.gmatch(tostring(p.leaders or ""), "(%d+)") do leadersLost[tonumber(id)] = true end
   for _, x in ipairs(refs) do
     local c = cas[x.id] or 0
+    -- a winning army that lost every warband leader takes 25% more casualties (it can't fall below 25% strength)
+    local won = false
+    for _, w in ipairs(WS_) do if w == x then won = true end end
+    if won and leadersLost[x.id] then
+      c = c + 25
+      table.insert(summary, R(x) .. " won but lost every warband leader: casualties +25% (now " .. c .. "%).")
+    end
     local sg = surgeonFor(x)
     if sg then
       local r = d6(x.side, "Surgeon")
@@ -12141,7 +12150,7 @@ function uiRun(player, arg)
     r = applyBattle({ terr = numOf(f.r_bTerr), atk = idOf(f.r_bAtk),
                       def = (string.find(f.r_bDef or "", "Garrison", 1, true) and "garrison") or idOf(f.r_bDef),
                       winner = f.bWin, outcome = f.bOut or "Broken", casA = f.bCasA, casD = f.bCasD, duel = f.bDuel or "none",
-                      retreat = f.bRetreat == "True", atkAll = f.bAtkAll, defAll = f.bDefAll, cas = f.bCas, outs = f.bOuts, rets = f.bRets })
+                      retreat = f.bRetreat == "True", atkAll = f.bAtkAll, defAll = f.bDefAll, cas = f.bCas, outs = f.bOuts, rets = f.bRets, leaders = f.bLeaders })
     say(pk, r, "Battle recorded. Losers retreat in the Retreat stage.")
     if r == true then f.bCasA, f.bCasD, f.bWin, f.bDuel, f.r_bLostA, f.r_bLostD, f.bRetreat = nil, nil, nil, nil, nil, nil, nil; u.bopen = nil end
   elseif a == "xfer" then
