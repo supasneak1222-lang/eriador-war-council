@@ -2947,7 +2947,7 @@ async function videoExport() {
     const ctx = cv.getContext("2d");
     // the map's layers, each redrawn only when something in it changed or moves
     const mapEl = $("map");
-    const dirty = new Set(), cache = new Map();
+    const dirty = new Set(), cache = new Map(), wasAnim = new Set();   // a layer whose animation just ended is drawn once more, at rest
     const topOf = (n) => { while (n && n.parentNode !== mapEl) n = n.parentNode; return n; };
     const mo = new MutationObserver((ms) => { for (const m of ms) { const t = topOf(m.target); if (t) dirty.add(t); } });
     // the live map isn't painted while the video is made (painting it is what costs): a preview of the film shows instead
@@ -3012,7 +3012,8 @@ async function videoExport() {
         if (el.hidden || el.id === "tip" || getComputedStyle(el).display === "none") continue;
         if (el.tagName !== "svg" && (!el.innerHTML.trim() || +getComputedStyle(el).opacity === 0)) continue;
         const targets = anims.filter((t) => el.contains(t));
-        if (!cache.has(el) || dirty.has(el) || targets.length) cache.set(el, await drawLayer(el, targets));
+        if (!cache.has(el) || dirty.has(el) || targets.length || wasAnim.has(el)) cache.set(el, await drawLayer(el, targets));
+        if (targets.length) wasAnim.add(el); else wasAnim.delete(el);
         ctx.drawImage(cache.get(el), 0, 0, VID.W, VID.H);
       }
       dirty.clear(); ST.draw += C.real.now() - d0;
