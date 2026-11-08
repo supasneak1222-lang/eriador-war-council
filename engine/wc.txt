@@ -1732,7 +1732,7 @@ function battleModifiers(n, atk, def)
       if (a.absent or 0) > 0 then table.insert(lines, a.name .. ": its Leader is absent (lost a Heroic Duel).") end
       if (a.exh or 0) > 0 then table.insert(lines, a.name .. ": exhausted from a Heroic March, -1\" movement.") end
       if outOfSupplies(a) then table.insert(lines, a.name .. " is out of supplies: +2 Courage for all its models this battle.") end
-      if a.dug == n then table.insert(lines, a.name .. " is dug in: this battle must use the Territory Defense scenario.") end
+      if a.dug == n then table.insert(lines, a.name .. " is dug in: this battle must use the Dig-In Defense scenario (rulebook p.28).") end
       pcall(eventBattleLines, n, a, lines)
       if osgFatigue(a) > 0 then table.insert(lines, a.name .. ": Osgiliath Fatigue, +" .. osgFatigue(a) .. " Courage this battle.") end
     end
@@ -2829,7 +2829,7 @@ ACTIONS = {
   block    = { name = "Road Blockage", verb = "blocking the roads", secret = true,
                rules = "Armies and wagons that travel into this territory stop there, and leaving takes their entire next move; the blockage then clears. Your own army that built it leaves freely the first time." },
   dig      = { name = "Dig In", verb = "digging in", secret = true,
-               rules = "Until this army leaves the territory, any battle here must use the Territory Defense scenario." },
+               rules = "Until this army leaves the territory, any battle here must use the Dig-In Defense scenario (rulebook p.28)." },
   sow      = { name = "Sow Discontent", verb = "sowing discontent", secret = true,
                rules = "This Neutral territory takes 1 extra turn to conquer (for anyone). It goes away after the first conquest." },
 }
@@ -3076,7 +3076,7 @@ local function applyOrder(a, o)
   elseif o.k == "dig" then
     a.dug, a.dugRevealed = n, o.revealed
     actEvent(a, o, pubName(a) .. " dug in")
-    say(a.name .. " is dug in at " .. tname(n) .. ": battles here must use the Territory Defense scenario.")
+    say(a.name .. " is dug in at " .. tname(n) .. ": battles here must use the Dig-In Defense scenario (rulebook p.28).")
   elseif o.k == "sow" then
     if t.owner ~= "Neutral" then return say(orderLabel(a) .. " came to nothing (the territory is no longer Neutral).") end
     t.sow = { side = a.side, revealed = o.revealed }
