@@ -81,8 +81,8 @@ function appState()
   out.battleAt = battleTerritories()
   out.undo = (#(UNDO or {}) > 0) and UNDO[#UNDO].label or nil
   out.stageName = S.started and STAGES[S.stage] or nil
-  out.income = {}
-  for i = 1, #S.terr do out.income[i] = income(i) end
+  out.income, out.garrison = {}, {}
+  for i = 1, #S.terr do out.income[i] = income(i); out.garrison[i] = garrisonSize(i) end
   -- what each side calls every army (the enemy may know it only as "Evil Army 3")
   local armies = {}
   for i, a in ipairs(S.armies) do
@@ -280,11 +280,13 @@ function appTerrInfo(n, viewer)
   if t.owner == "Neutral" then for _, x in ipairs(ADJ[n] or {}) do if S.terr[x].b.fort and S.terr[x].owner ~= "Neutral" then nearFort[#nearFort + 1] = { n = x, owner = S.terr[x].owner } end end end
   local b = {}
   for _, x in ipairs(BUILDINGS) do b[#b + 1] = { key = x.key, name = x.name, cost = x.cost, turns = buildTurns(side, x.key), rules = x.rules, desc = x.desc } end
+  local room, why = fortUpRoom(n)
+  local fortUp = t.b.fort and { level = t.fortup or 0, garrison = garrisonSize(n), room = room, why = why, cost = FORT_UP.cost, turns = FORT_UP.turns, rules = FORT_UP.rules } or nil
   local q = {}
   for _, x in ipairs(t.q or {}) do local d = BUILDING_BY_KEY[x.key]; q[#q + 1] = { key = x.key, left = x.left, total = x.total or d.turns, halt = x.halt } end
   return JSON.encode({ conquer = conquestNeed(n), shield = sh, shieldName = sh and NAMES[sh] or nil, shields = shields, nearFort = nearFort,
                        borders = ADJ[n] or {}, capital = (n == S.settings.capGood) and "Good" or ((n == S.settings.capEvil) and "Evil" or nil),
-                       buildings = b, q = q, full = buildingCount(n) >= MAX_BUILDINGS })
+                       buildings = b, q = q, full = buildingCount(n) >= MAX_BUILDINGS, fortUp = fortUp })
 end
 
 -- Movement an agent has left this turn.

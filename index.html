@@ -476,7 +476,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=2715c5b3fe').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=36985cad62').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -1589,7 +1589,7 @@ function battlePanel() {
   const sideOf = (a, fb) => a ? a.side : fb;
   const fighter = (role, a, gSide) => {
     const sd = sideOf(a, gSide || 'Neutral');
-    if (!a && garrison && role === 'Defender') return `<div class="${sd}"><span class="pill ${sd}">${role}</span><b>Garrison</b>400 pt garrison of ${esc(T[n].name)}<br>Siege battle</div>`;
+    if (!a && garrison && role === 'Defender') return `<div class="${sd}"><span class="pill ${sd}">${role}</span><b>Garrison</b>${gpts(n)} pt garrison of ${esc(T[n].name)}<br>Siege battle</div>`;
     if (!a) return `<div class="Neutral"><span class="pill Neutral">${role}</span><b>Choose an army</b></div>`;
     const third = [a.surgeon && 'Surgeon attached', a.carried != null && `Carrying ${a.carried} RP`, a.units && `${a.units} models, broken at ${a.broken ?? '?'} dead`].filter(Boolean).join(' · ');
     return `<div class="${sd}"><span class="pill ${sd}">${role}</span><b>${esc(a.name)}</b>${esc(a.leader || 'Leader unknown')} · ${a.size ? `${a.size} pts · ${a.damage ? `field as ${a.field} (−${a.damage}%)` : 'full strength'}` : 'units unknown'}${third ? `<br>${esc(third)}` : ''}</div>`;
@@ -1626,7 +1626,7 @@ function battlePanel() {
       <button data-swap title="The army that moved in this turn attacks. Swap if it was the other way round.">Swap sides</button></div>
     <h2 style="margin-top:8px">${esc(tname(n))}${B.siege ? ' · siege' : ''}</h2>
     ${B.atkList.length > 1 ? `<label>Leading the attack <select data-bf="atk">${B.atkList.map(a => opt(String(a.id), a.name, A && a.id === A.id)).join('')}</select></label>` : ''}
-    ${defOpts.length > 1 ? `<label>Leading the defence <select data-bf="def">${defOpts.map(o => opt(o.v, o.a ? o.a.name : 'Garrison only (400 pts)', garrison ? o.v === 'garrison' : D && o.a && o.a.id === D.id)).join('')}</select></label>` : ''}
+    ${defOpts.length > 1 ? `<label>Leading the defence <select data-bf="def">${defOpts.map(o => opt(o.v, o.a ? o.a.name : `Garrison only (${gpts(n)} pts)`, garrison ? o.v === 'garrison' : D && o.a && o.a.id === D.id)).join('')}</select></label>` : ''}
     <div class="vs">${fighter('Attacker', A)}<div class="mid">vs</div>${fighter('Defender', D, B.owner)}</div>
     ${[A, D].filter(a => a && a.over).map(a => note(esc(a.over), true)).join('')}
     <h2 style="margin-top:12px;font-size:13px">Conditions${ruleLink('battles')}</h2><div style="color:var(--dim);font-size:14.5px">${(B.conditions.length ? B.conditions : ['No special conditions.']).map(esc).join('<br>')}</div>
@@ -1773,7 +1773,8 @@ let twiceAsk = {};
 const BUILD = [['hospital', 'Hospital', 150, 3], ['mustering', 'Mustering Grounds', 100, 2], ['tavern', 'Tavern', 75, 2], ['medical', 'Medical College', 100, 3],
   ['slums', 'Slums', 100, 3], ['demolition', 'Demolition Guild', 75, 2], ['roads', 'Roads', 150, 3], ['fort', 'Fortifications', 150, 3], ['city', 'City', 200, 4],
   ['scouttower', 'Scout Tower', 100, 2], ['archery', 'Ballista Tower', 50, 2], ['mapping', 'Land Mapping', 50, 2]];
-const BNAME = Object.fromEntries(BUILD.map(b => [b[0], b[1]]));
+const BNAME = Object.fromEntries(BUILD.map(b => [b[0], b[1]])); BNAME.fortup = 'Fortress Upgrade';
+const gpts = (n) => (S.garrison && S.garrison[n - 1]) || 400;
 const note = (t, warn) => `<div style="color:${warn ? '#f0c27a' : 'var(--dim)'};margin-top:6px;font-size:14.5px">${t}</div>`;
 const opt = (val, label, selected) => `<option value="${esc(val)}"${selected ? ' selected' : ''}>${esc(label)}</option>`;
 const pubName = (a) => (a.pub && a.pub[acting]) || a.name;
@@ -1792,9 +1793,9 @@ function terrCard(n) {
   for (const f of I.nearFort) facts.push(`Next to the ${f.owner} fortress at ${T[f.n].name}: takes ${OTHER_SIDE(f.owner)} 1 extra turn to conquer.`);
   for (const [, l] of S.markers[n - 1] || []) if (!t.conq || !l.includes('conquering')) facts.push(l);
   h += facts.map(f => note(esc(f), true)).join('');
-  h += `<h3>Buildings · ${built.length + (see ? I.q.length : 0)} of 4${ruleLink('buildings')}</h3>`;
+  h += `<h3>Buildings · ${built.length + (see ? I.q.filter(q => q.key !== 'fortup').length : 0)} of 4${ruleLink('buildings')}</h3>`;
   if (!built.length && !(see && I.q.length)) h += `<div style="color:var(--dim)">None yet.</div>`;
-  for (const k of built) h += `<div class="item" title="${esc(binfo[k] ? binfo[k].rules : '')}"><span>${esc(BNAME[k] || k)}<br><small style="color:var(--dim)">${esc(binfo[k] ? binfo[k].desc : '')}</small></span></div>`;
+  for (const k of built) h += `<div class="item" title="${esc(binfo[k] ? binfo[k].rules : '')}"><span>${esc(BNAME[k] || k)}${k === 'fort' && I.fortUp ? ` <small style="color:var(--dim)">· ${I.fortUp.garrison} pt garrison${I.fortUp.level ? `, ${I.fortUp.level} upgrade${I.fortUp.level === 1 ? '' : 's'}` : ''}</small>` : ''}<br><small style="color:var(--dim)">${esc(binfo[k] ? binfo[k].desc : '')}</small></span></div>`;
   if (see) for (const q of I.q) h += `<div class="item"><span>${esc(BNAME[q.key] || q.key)} <small style="color:var(--dim)">· building, ${q.total - q.left} of ${q.total} turns${q.halt ? ' (halted)' : ''}</small>
     <div class="bar"><div style="width:${(q.total - q.left) / q.total * 100}%"></div></div></span></div>`;
   const mine = t.owner === acting || S.settings.override;
@@ -1804,6 +1805,9 @@ function terrCard(n) {
       .map(b => { const cr = S.cityRoom && S.cityRoom[acting], cityFull = b.key === 'city' && cr && cr.cities >= cr.allowed && !S.settings.override;
         return `<button ${room && !cityFull ? '' : 'disabled'} data-act="build~${n}~${b.key}" title="${esc(cityFull ? `1 City for every 4 territories: ${cr.owned} territories allow ${cr.allowed}, and ${acting} has ${cr.cities}.` : b.rules)}">${esc(b.name)}<small>${b.cost} RP · ${b.turns} turn${b.turns === 1 ? '' : 's'} · ${b.key === 'city' && cr ? `${cr.cities} of ${cr.allowed} Cities` : `stock ${t.stock || 0}`}</small></button>`; }).join('') + `</div>`;
     if (!room) h += note('This territory holds 4 buildings: it can\'t take another.', true);
+    if (I.fortUp) { const F = I.fortUp;
+      h += `<h3>Fortress</h3><div class="grid2"><button ${F.room > 0 ? '' : 'disabled'} data-act="build~${n}~fortup" title="${esc(F.room > 0 ? F.rules : 'No upgrade possible: ' + F.why + '.')}">Fortress Upgrade<small>${F.cost} RP · ${F.turns} turns · garrison ${F.garrison}${F.room > 0 ? ' → ' + (F.garrison + 200) : ''} pts</small></button></div>`;
+      if (F.room <= 0) h += note(`No upgrade now: ${F.why}.`); }
     { const cr = S.cityRoom && S.cityRoom[acting]; if (cr && !built.includes('city') && cr.cities >= cr.allowed) h += note(`Cities: ${acting} owns ${cr.owned} territories, which allows ${cr.allowed} Cit${cr.allowed === 1 ? 'y' : 'ies'} (1 for every 4). Take more land to build another.`); }
     const al = S.alliance[acting];
     h += `<h3>Armies · ${S.count[acting]} of ${S.cap[acting]} pts${ruleLink('armies')}</h3><button data-toggle="raise" ${S.count[acting] + 400 > S.cap[acting] ? 'disabled title="At the Point Cap: build a City for 600 more points."' : ''}>${open.raise ? 'Cancel' : 'Raise an army here'}</button>`;
@@ -4275,7 +4279,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=2715c5b3fe').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=36985cad62').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4370,7 +4374,7 @@ function versusSplash(n, force) {
   const side = (a, fallback) => a ? a.side : fallback;
   const L = A, R = D, ls = side(L, 'Evil'), rs = side(R, t.owner !== 'Neutral' ? t.owner : OTHER_OF[ls]);
   const nm = (a, s) => a ? esc(pubName(a)) : (siege ? 'The garrison' : 'Defenders');
-  const sub = (a) => a ? `${a.size || 400} pts${a.leader && knownToEnemy(a) ? ' · ' + esc(a.leader) : ''}` : siege ? '400 pt garrison behind the walls' : '';
+  const sub = (a) => a ? `${a.size || 400} pts${a.leader && knownToEnemy(a) ? ' · ' + esc(a.leader) : ''}` : siege ? `${gpts(n)} pt garrison behind the walls` : '';
   const el = $('versus');
   el.innerHTML = `<div class="vs-half vs-l ${ls}"><div class="vs-banner"></div>${portrait(L, ls)}<b>${nm(L, ls)}</b><small>${sub(L)}</small></div>
     <div class="vs-mid"><div class="vs-swords">⚔</div><div class="vs-word">VS</div><div class="vs-where">${esc(tname(n))}${siege ? '<span>Siege</span>' : ''}</div></div>
@@ -4483,7 +4487,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=2715c5b3fe').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=36985cad62').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4974,7 +4978,7 @@ function wireOnline(el) {
 })();
 window.__net = NET;
 
-window.__app = { startTour: () => startTour(), tourGo: (i) => tourGo(i), openSettings: (t) => openSettings(t), luaRun: (c) => luaRun(c, "dbg"), openDicePicker: (s) => openDicePicker(s), openFigPicker: (o) => openFigPicker(o), setFigure: (i, f) => setFigure(i, f), versusSplash: (n) => versusSplash(n, true), resultCeremony: (b) => resultCeremony(b), LEADERS: () => LEADERS, openBattle: (n) => openBattle(n), startAmbience: () => startAmbience(), uiSound: (k) => uiSound(k), ambienceTick: () => ambienceTick(), victoryScreen: () => victoryScreen(), AMB, armyHover: (a) => armyHover(a), historyHtml: (n) => historyHtml(n), fadeOwners: (c) => fadeOwners(c), turnCinematic: () => turnCinematic(), lootCart: (m) => lootCart(m), shots, syncRoads: () => { roadKey = ''; syncRoads(); }, showRoute: (p) => showRoute(p), pathTo: (a, b) => pathTo(a, b), drawWear: () => drawOverlay(), driving, syncScene, movePreview: (d, n) => movePreview(d, n), todoList: () => todoList(), startRecap: (x) => startRecap(x), battleAftermath: (b) => battleAftermath(b), captureSweep: (n, o) => captureSweep(n, o), keysHeld, onMove: (e) => onMove(e), draw: { start: (id) => startRouteDraw(S.agents.find(g => g.id === id)), add: (n) => drawAdd(n), close: () => drawClose(), finish: () => drawFinish(), state: () => routeDraw && { path: routeDraw.path, acts: routeDraw.acts } }, fx: () => ({ glow: GLOW.list.length, smoke: SMOKE.list.length, lasting: [...lasting.keys()] }), labelsShown: () => [...LABELS.values()].filter(e => e.style.display !== 'none').length, cards: async (id) => Promise.all(JSON.parse(luaCall('appCards', id)).map(c => cardURL(cardSrc(c)))), reachSize: () => reach ? reach.all.size : 0, openLedger, diceTop: () => shown.map(d => d.m.material[upFace(d.m.quaternion)].userData.v), holdInset: () => { insetUntil = Infinity; }, dice: () => ({ insetUntil, now: performance.now(), shown: shown.length, replay: !!replay, frame: !$('insetFrame').hidden }), select, renderUI, act: (a, f) => act(a, f), get S() { return S; }, things, camera, controls, toWorld, T, luaCall };
+window.__app = { refresh: () => { refresh(); renderUI(); }, startTour: () => startTour(), tourGo: (i) => tourGo(i), openSettings: (t) => openSettings(t), luaRun: (c) => luaRun(c, "dbg"), openDicePicker: (s) => openDicePicker(s), openFigPicker: (o) => openFigPicker(o), setFigure: (i, f) => setFigure(i, f), versusSplash: (n) => versusSplash(n, true), resultCeremony: (b) => resultCeremony(b), LEADERS: () => LEADERS, openBattle: (n) => openBattle(n), startAmbience: () => startAmbience(), uiSound: (k) => uiSound(k), ambienceTick: () => ambienceTick(), victoryScreen: () => victoryScreen(), AMB, armyHover: (a) => armyHover(a), historyHtml: (n) => historyHtml(n), fadeOwners: (c) => fadeOwners(c), turnCinematic: () => turnCinematic(), lootCart: (m) => lootCart(m), shots, syncRoads: () => { roadKey = ''; syncRoads(); }, showRoute: (p) => showRoute(p), pathTo: (a, b) => pathTo(a, b), drawWear: () => drawOverlay(), driving, syncScene, movePreview: (d, n) => movePreview(d, n), todoList: () => todoList(), startRecap: (x) => startRecap(x), battleAftermath: (b) => battleAftermath(b), captureSweep: (n, o) => captureSweep(n, o), keysHeld, onMove: (e) => onMove(e), draw: { start: (id) => startRouteDraw(S.agents.find(g => g.id === id)), add: (n) => drawAdd(n), close: () => drawClose(), finish: () => drawFinish(), state: () => routeDraw && { path: routeDraw.path, acts: routeDraw.acts } }, fx: () => ({ glow: GLOW.list.length, smoke: SMOKE.list.length, lasting: [...lasting.keys()] }), labelsShown: () => [...LABELS.values()].filter(e => e.style.display !== 'none').length, cards: async (id) => Promise.all(JSON.parse(luaCall('appCards', id)).map(c => cardURL(cardSrc(c)))), reachSize: () => reach ? reach.all.size : 0, openLedger, diceTop: () => shown.map(d => d.m.material[upFace(d.m.quaternion)].userData.v), holdInset: () => { insetUntil = Infinity; }, dice: () => ({ insetUntil, now: performance.now(), shown: shown.length, replay: !!replay, frame: !$('insetFrame').hidden }), select, renderUI, act: (a, f) => act(a, f), get S() { return S; }, things, camera, controls, toWorld, T, luaCall };
 </script>
 
 </body></html>

@@ -186,7 +186,7 @@ REPLENISH = { [400] = { 50, 75, 100 }, [600] = { 125, 150, 175 }, [800] = { 200,
 HOSPITAL_DISCOUNT = { [400] = 25, [600] = 50, [800] = 75, [1000] = 100 }
 MERC = { { cost = 50, rep = 25 }, { cost = 75, rep = 50 } }
 UPGRADE_COST, UPGRADE_TURNS, EDIT_COST = 200, 1, 25
-BASE_INCOME, CITY_INCOME, WAGON_CAP = 25, 50, 400
+BASE_INCOME, CITY_INCOME, WAGON_CAP = 25, 25, 400
 
 BUILDINGS = {
   { key = "hospital",   name = "Hospital",          short = "Hos", cost = 150, turns = 3, rules = "Replenishing an army here costs 25/50/75/100 RP less (400/600/800/1000 pt army).", desc = "Replenishing here costs 25/50/75/100 less by army size." },
@@ -197,13 +197,24 @@ BUILDINGS = {
   { key = "demolition", name = "Demolition Guild",  short = "Dem", cost = 75,  turns = 2, rules = "Lets you recruit Saboteurs. You can have as many Saboteurs as you have Demolition Guilds.", desc = "Each allows 1 Saboteur." },
   { key = "roads",      name = "Roads",             short = "Rd",  cost = 150, turns = 4, rules = "Leaving this region costs no movement: an army can use that once a turn, an agent or Supply Wagon up to three times a turn.", desc = "Leaving this region costs no movement (armies once a turn, agents and wagons up to 3 times)." },
   { key = "fort",       name = "Fortifications",    short = "For", cost = 150, turns = 3, rules = "Battles here are Sieges and the defender gains a 400 pt garrison. While it holds, the owner's adjacent territories cannot be conquered, and adjacent Neutral territories take 1 extra turn for the enemy to conquer.", desc = "Siege + 400 pt garrison; protects adjacent friendly territories from conquest; adjacent Neutral land takes the enemy +1 turn." },
-  { key = "city",       name = "City",              short = "Cty", cost = 200, turns = 4, rules = "Territory makes +50 RP per turn (75 total) and takes 1 extra turn to conquer.", desc = "+50 income; takes 1 more turn to conquer." },
+  { key = "city",       name = "City",              short = "Cty", cost = 200, turns = 4, rules = "Territory makes +25 RP per turn (50 total) and takes 1 extra turn to conquer.", desc = "+25 income; takes 1 more turn to conquer." },
   { key = "scouttower", name = "Scout Tower",       short = "ScT", cost = 100, turns = 2, rules = "Reveals enemy armies in adjacent territories. The owner gets +1 to all priority rolls in battles fought here. In battles here or in any adjacent territory, the owner's army chooses who deploys first, whatever the scenario rules or warband totals say.", desc = "Reveals armies in adjacent territories; +1 battle priority here; choose who deploys first here and next door." },
   { key = "archery",    name = "Ballista Tower",    short = "Bal", cost = 50,  turns = 2, rules = "In battles here, the owner places a Ballista Tower in their deployment zone: Shoot Value 4+, range 48\", normal MESBG Ballista scatter rules. It can be fired up to three times a game, and is destroyed if an enemy model is in base contact with it and unengaged during a Fight phase.", desc = "Owner places a Ballista Tower (Shoot 4+, 48\", 3 shots) in their deployment zone here." },
   { key = "mapping",    name = "Land Mapping",      short = "Map", cost = 50,  turns = 2, rules = "In this territory and every territory next to it, nothing hinders the owner's movement: no road blockages, no snowed-in events, and Supply Wagons pay no extra for Neutral land.", desc = "Here and next door: road blockages, snow and Neutral land don't hinder the owner's pieces." },
 }
 BUILDING_BY_KEY = {}
 for _, b in ipairs(BUILDINGS) do BUILDING_BY_KEY[b.key] = b end
+-- Fortress Upgrade: raises a Fortifications' garrison a step (600/800/1000), one upgrade at a time; not a building of its own
+FORT_UP = { key = "fortup", name = "Fortress Upgrade", short = "FUp", cost = 150, turns = 2,
+  rules = "Raises this Fortifications' garrison by 200 points: 600, then 800, then 1000. Up to three upgrades, one at a time. Doesn't count as a building.",
+  desc = "Garrison +200 pts (600/800/1000); one at a time." }
+BUILDING_BY_KEY.fortup = FORT_UP
+-- a finished construction: a building, or one more Fortress Upgrade
+function finishBuild(n, item)
+  local t = S.terr[n]
+  if item.key == "fortup" then t.fortup = (t.fortup or 0) + 1; pieceHook("built", n, "fort"); return " (garrison now " .. garrisonSize(n) .. " pts)" end
+  t.b[item.key] = true; pieceHook("built", n, item.key); return ""
+end
 
 AGENT_TYPES = { "Scout", "Assassin", "Surgeon", "Saboteur", "Supply Wagon" }
 AGENTS = {
@@ -781,10 +792,9 @@ function startOfTurn(firstTurn)
       else
         item.left = item.left - 1
         if item.left <= 0 then
-          t.b[item.key] = true
-          pieceHook("built", n, item.key)
+          local extra = finishBuild(n, item)
           table.remove(t.q, i)
-          clog(t.owner .. ": " .. BUILDING_BY_KEY[item.key].name .. " completed at " .. tname(n) .. ".", nil, "construction")
+          clog(t.owner .. ": " .. BUILDING_BY_KEY[item.key].name .. " completed at " .. tname(n) .. extra .. ".", nil, "construction")
         end
       end
     end
@@ -1030,13 +1040,15 @@ CITY_PER_TERR = 4   -- one City for every 4 territories a side owns
 function buildingCount(n)
   local t, c = S.terr[n], 0
   for _, has in pairs(t.b or {}) do if has then c = c + 1 end end
-  return c + #(t.q or {})
+  for _, item in ipairs(t.q or {}) do if item.key ~= "fortup" then c = c + 1 end end
+  return c
 end
 
 function construct(side, n, key)
   local ok = stageOk("Building"); if ok ~= true then return ok end
   local t, b = S.terr[n], BUILDING_BY_KEY[key]
   if t.owner ~= side and not S.settings.override then return "You don't own " .. tname(n) .. "." end
+  if key == "fortup" then return fortUpgrade(side, n) end
   if t.b[key] then return tname(n) .. " already has a " .. b.name .. "." end
   for _, item in ipairs(t.q) do if item.key == key then return b.name .. " is already being built there." end end
   if key == "city" and not S.settings.override then
@@ -1059,6 +1071,26 @@ function construct(side, n, key)
   local turns = buildTurns(side, key, n)
   table.insert(t.q, { key = key, left = turns, total = turns, side = side })
   clog(side .. " began building " .. b.name .. " at " .. tname(n) .. " (" .. turns .. " turns" .. ((turns < b.turns) and (", " .. ((side == "Good") and "Hobbit Laborers" or "Tear Them All Down")) or "") .. ").", side)
+  return true
+end
+
+-- the upgrades a fortress may still take, and starting one
+function fortUpRoom(n)
+  local t = S.terr[n]
+  if not t.b.fort then return 0, "needs finished Fortifications" end
+  for _, item in ipairs(t.q) do if item.key == "fortup" then return 0, "an upgrade is already under way" end end
+  local left = math.floor((1000 - garrisonSize(n)) / 200)
+  if left <= 0 then return 0, "the garrison is already 1000 pts" end
+  return left
+end
+function fortUpgrade(side, n)
+  local t = S.terr[n]
+  if t.owner ~= side and not S.settings.override then return "You don't own " .. tname(n) .. "." end
+  local room, why = fortUpRoom(n)
+  if room <= 0 then return "Can't upgrade the fortress at " .. tname(n) .. ": " .. why .. "." end
+  local r = payOrFail(side, n, FORT_UP.cost); if r ~= true then return r end
+  table.insert(t.q, { key = "fortup", left = FORT_UP.turns, total = FORT_UP.turns, side = side })
+  clog(side .. " began a Fortress Upgrade at " .. tname(n) .. " (" .. FORT_UP.turns .. " turns; garrison " .. garrisonSize(n) .. " to " .. (garrisonSize(n) + 200) .. " pts).", side)
   return true
 end
 
@@ -1713,7 +1745,7 @@ function battleModifiers(n, atk, def)
   local lines = {}
   local prio = { Good = 0, Evil = 0 }
   if t.b.fort and t.owner ~= "Neutral" then
-    table.insert(lines, "Fortifications: this is a SIEGE. " .. t.owner .. " gains a " .. garrisonSize(n) .. " pt garrison" .. ((garrisonSize(n) > 400) and " (The Hornburg)" or "") .. ".")
+    table.insert(lines, "Fortifications: this is a SIEGE. " .. t.owner .. " gains a " .. garrisonSize(n) .. " pt garrison" .. (((t.fortup or 0) > 0) and (" (" .. t.fortup .. " Fortress Upgrade" .. (t.fortup == 1 and "" or "s") .. ")") or ((garrisonSize(n) > 400) and " (The Hornburg)" or "")) .. ".")
     -- siege supplies: RP for siege equipment only, this battle
     local ints = function(sz) return math.max(1, math.floor(((sz or 400) - 200) / 200)) end
     local foe, atkRP, parts = OTHER[t.owner], 0, {}
@@ -3289,7 +3321,7 @@ SPECIAL_RULES = {
   Rohan = {
     Good = {
       { key = "swiftness", name = "Swiftness of the Riddermark", auto = true, text = "A Heroic March gives +2 regions instead of +1." },
-      { key = "hornburg", name = "The Hornburg", auto = true, text = "Good starts with Fortifications in the Hornburg (Helm's Deep); its garrison is 600 points instead of 400." },
+      { key = "hornburg", name = "The Hornburg", auto = true, text = "Good starts with Fortifications in the Hornburg (Helm's Deep); its garrison is 600 points instead of 400 (Fortress Upgrades take it to 800, then 1000)." },
       { key = "eorlingas", name = "Forth Eorlingas!", text = "Once per campaign, after a friendly territory is lost, Good may raise a free 600 point Kingdom of Rohan army in an adjacent friendly territory, ready at once. It can take no Heroes other than a Captain of Rohan." },
     },
     Evil = {
@@ -3300,7 +3332,7 @@ SPECIAL_RULES = {
   },
   Gondor = {
     Good = {
-      { key = "whitecity", name = "Splendor of the White City", auto = true, text = "Good's capital starts with Fortifications and a City, and its City gives +75 RP instead of +50. The capital's Fortifications don't protect West Osgiliath, but while West Osgiliath stands no enemy army or model can pass through the capital, whatever their special rules." },
+      { key = "whitecity", name = "Splendor of the White City", auto = true, text = "Good's capital starts with Fortifications and a City, and its City gives +50 RP instead of +25. The capital's Fortifications don't protect West Osgiliath, but while West Osgiliath stands no enemy army or model can pass through the capital, whatever their special rules." },
       { key = "stewards", name = "Stubbornness of Stewards", text = "Denethor and Aragorn can't both lead armies unless Boromir also leads one. Aragorn leading without Denethor: -1 Courage for his army. Denethor leading without Aragorn: once per Logistics stage he may scout any Evil army, revealing it on a 2+. All three leading: Good's capital produces double resources." },
       { key = "beacons", name = "The Beacons Are Lit", text = "Once per campaign, at the start of any stage while Denethor leads an army, Good may light the beacons: Denethor is replaced as leader for good, and at the start of the 3rd turn after, a 1000 point Kingdom of Rohan army appears next to Good's capital. Not allowed while the capital is in enemy hands or while Good holds East or West Osgiliath." },
     },
@@ -3474,16 +3506,18 @@ function osgFatigue(a)
   if not theatreRule("osgiliath") or not a or (a.osg or 0) < 2 then return 0 end
   return math.min(4, a.osg)
 end
--- Splendor of the White City: the capital's City gives +75 instead of +50
+-- Splendor of the White City: the capital's City gives +50 instead of +25
 function whiteCityBonus(n)
   if n == S.settings.capGood and S.terr[n].b.city and S.terr[n].owner == "Good" and hasRule("Good", "whitecity") then return 25 end
   return 0
 end
 
 -- The Hornburg: Helm's Deep's garrison
+-- The garrison: 400 pts, +200 for each Fortress Upgrade, to at most 1000
 function garrisonSize(n)
-  if hasRule("Good", "hornburg") and S.terr[n].owner == "Good" and NAMES[n] == "Helm's Deep" then return 600 end
-  return 400
+  local base = 400
+  if hasRule("Good", "hornburg") and S.terr[n].owner == "Good" and NAMES[n] == "Helm's Deep" then base = 600 end
+  return math.min(1000, base + 200 * (S.terr[n].fortup or 0))
 end
 -- Swiftness of the Riddermark: a Heroic March gives +2 regions
 function marchBonus(a)
@@ -3495,7 +3529,7 @@ function rulesAtStart()
   if hasRule("Good", "whitecity") then
     local cap = S.settings.capGood
     if cap and not S.terr[cap].b.city then S.terr[cap].b.city = true; pieceHook("built", cap, "city") end
-    clog("Splendor of the White City: " .. tname(cap) .. " begins with Fortifications and a City; its City gives +75 RP.")
+    clog("Splendor of the White City: " .. tname(cap) .. " begins with Fortifications and a City; its City gives +50 RP.")
   end
   if hasRule("Good", "hornburg") then
     local hd = terrByName("Helm's Deep")
@@ -3854,10 +3888,9 @@ local function apply(side, ev)
         local item = t.q[qi]
         item.left = item.left - 1
         if item.left <= 0 then
-          t.b[item.key] = true
+          local extra = finishBuild(n, item)
           table.remove(t.q, qi)
-          pieceHook("built", n, item.key)
-          clog(BUILDING_BY_KEY[item.key].name .. " completed at " .. tname(n) .. " (Hobbit Holiday).", nil, "construction")
+          clog(BUILDING_BY_KEY[item.key].name .. " completed at " .. tname(n) .. extra .. " (Hobbit Holiday).", nil, "construction")
         end
       end
       table.insert(hit, NAMES[n])
