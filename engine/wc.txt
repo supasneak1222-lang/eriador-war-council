@@ -1426,6 +1426,11 @@ function scoutArmies(g)
   for _, a in ipairs(armiesIn(g.loc, OTHER[g.side])) do
     found = found + 1
     a.seenLeader[g.side] = true
+    if a.seenUnits[g.side] then
+      -- already scouted: nothing more to learn, so no roll
+      clog("Scout at " .. tname(g.loc) .. ": " .. a.name .. ", led by " .. (a.leader ~= "" and a.leader or "an unnamed leader") .. ", is already known.", g.side, "agents")
+      goto continue
+    end
     local r = d6(g.side, "Scout")
     if r >= scoutNeed(g.side) then
       a.seenUnits[g.side] = true
@@ -1435,6 +1440,7 @@ function scoutArmies(g)
       clog("Scout at " .. tname(g.loc) .. ": found an army led by " .. (a.leader ~= "" and a.leader or "an unnamed leader") ..
           ". Rolled " .. r .. " - units not revealed.", g.side, "agents")
     end
+    ::continue::
   end
   return found
 end
