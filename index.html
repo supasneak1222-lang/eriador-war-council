@@ -476,7 +476,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=fb15d55153').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=d601cb886d').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -681,6 +681,10 @@ const T = MAP.terr;
 function loadImg(src) { return new Promise((res, rej) => { const i = new Image(); i.onload = () => { tick(); res(i); }; i.onerror = rej; i.src = src; }); }
 function pixels(img) { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0); return { w: img.width, h: img.height, d: x.getImageData(0, 0, img.width, img.height).data }; }
 const [boardImg, hImg, tImg] = await Promise.all([loadImg(ASSET + 'board.jpg'), loadImg(ASSET + 'height.png'), loadImg(ASSET + 'terr.png')]);
+// the water: R = rivers and seas, G = open water (seas, great lakes), B = dark water (the Sea of Nurn); shore = surf and river banks
+const WATER = await Promise.all([loadImg(ASSET + 'water.png'), loadImg(ASSET + 'shore.png'), fetch(ASSET + 'water.json').then(r => r.json())])
+  .then(([w, sh, info]) => ({ M: pixels(w), shore: sh, info })).catch((e) => { console.warn('no water for this map', e); return null; });
+function wAt(u, v, ch = 0) { if (!WATER || u < 0 || v < 0 || u > 1 || v > 1) return 0; const M = WATER.M; return M.d[(Math.floor(v * (M.h - 1)) * M.w + Math.floor(u * (M.w - 1))) * 4 + ch] / 255; }
 const HM = pixels(hImg), TM = pixels(tImg);
 const BW = 150, BD = 150 * hImg.height / hImg.width, RELIEF = 7;
 function hAt(u, v) {
@@ -721,13 +725,47 @@ camera.position.copy(HOME.pos); controls.target.copy(HOME.target);
 
 const boardTex = new THREE.Texture(boardImg); boardTex.colorSpace = THREE.SRGBColorSpace; boardTex.anisotropy = renderer.capabilities.getMaxAnisotropy(); boardTex.needsUpdate = true;
 const geo = new THREE.PlaneGeometry(BW, BD, 820, 658); geo.rotateX(-Math.PI / 2);
-{ const p = geo.attributes.position, uv = geo.attributes.uv; for (let i = 0; i < p.count; i++) p.setY(i, hAt(uv.getX(i), 1 - uv.getY(i))); geo.computeVertexNormals(); }
+{ const p = geo.attributes.position, uv = geo.attributes.uv; for (let i = 0; i < p.count; i++) { const u = uv.getX(i), v = 1 - uv.getY(i), w = wAt(u, v); p.setY(i, hAt(u, v) - (w > 0.02 ? 0.5 * Math.min(1, w * 1.4) : 0)); } geo.computeVertexNormals(); }
 const board = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.95, metalness: 0 }));
 board.receiveShadow = true; board.castShadow = true; scene.add(board);
 const OV = document.createElement('canvas'); OV.width = 4096; OV.height = Math.round(4096 * BD / BW); const ovx = OV.getContext('2d');
 const ovTex = new THREE.CanvasTexture(OV); ovTex.colorSpace = THREE.SRGBColorSpace; ovTex.anisotropy = 8;
 const overlay = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: ovTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }));
 overlay.renderOrder = 1; scene.add(overlay);
+const WSURF = buildWater();
+function waterLevel(u, v) { let s = 0; for (const [du, dv] of [[0, 0], [0.006, 0], [-0.006, 0], [0, 0.009], [0, -0.009], [0.012, 0], [-0.012, 0], [0, 0.016], [0, -0.016]]) s += hAt(u + du, v + dv); return s / 9 - 0.06; }
+function buildWater() {
+  if (!WATER) return null;
+  const M = WATER.M, mk = (ch, k = 1) => { const c = document.createElement('canvas'); c.width = M.w; c.height = M.h; const x = c.getContext('2d'), id = x.createImageData(M.w, M.h);
+    for (let i = 0; i < M.w * M.h; i++) { const a = Math.min(255, M.d[i * 4 + ch] * k); id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = a; id.data[i * 4 + 3] = a; } x.putImageData(id, 0, 0); return c; };
+  WATER.cut = mk(0, 1.3);
+  const wgeo = new THREE.PlaneGeometry(BW, BD, 410, Math.round(410 * BD / BW)); wgeo.rotateX(-Math.PI / 2);
+  { const p = wgeo.attributes.position, uv = wgeo.attributes.uv; for (let i = 0; i < p.count; i++) p.setY(i, waterLevel(uv.getX(i), 1 - uv.getY(i))); wgeo.computeVertexNormals(); }
+  // ripples: a tiling normal map that drifts
+  const N = 256, c = document.createElement('canvas'); c.width = c.height = N; const x = c.getContext('2d'), id = x.createImageData(N, N), hgt = new Float32Array(N * N);
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (const [g, a] of [[8, 1], [16, 0.6], [32, 0.35], [64, 0.18]]) {   // tiling value noise, a few octaves: no lines, no repeats in sight
+    const G = Array.from({ length: g * g }, rnd), sm = (t) => t * t * (3 - 2 * t);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const x = i / N * g, y = j / N * g, x0 = Math.floor(x), y0 = Math.floor(y), fx = sm(x - x0), fy = sm(y - y0), q = (xx, yy) => G[(yy % g) * g + (xx % g)];
+      hgt[j * N + i] += a * ((q(x0, y0) * (1 - fx) + q(x0 + 1, y0) * fx) * (1 - fy) + (q(x0, y0 + 1) * (1 - fx) + q(x0 + 1, y0 + 1) * fx) * fy); } }
+  const H = (a, b) => hgt[((b + N) % N) * N + ((a + N) % N)];
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { let nx = (H(i - 1, j) - H(i + 1, j)) * 4.5, ny = (H(i, j - 1) - H(i, j + 1)) * 4.5, nz = 1; const L = Math.hypot(nx, ny, nz), o = (j * N + i) * 4;
+    id.data[o] = (nx / L * 0.5 + 0.5) * 255; id.data[o + 1] = (ny / L * 0.5 + 0.5) * 255; id.data[o + 2] = (nz / L * 0.5 + 0.5) * 255; id.data[o + 3] = 255; }
+  x.putImageData(id, 0, 0);
+  const ripple = new THREE.CanvasTexture(c); ripple.wrapS = ripple.wrapT = THREE.RepeatWrapping; ripple.repeat.set(BW / 7, BD / 7);
+  const sky = document.createElement('canvas'); sky.width = sky.height = 64; const sx = sky.getContext('2d'), gr = sx.createLinearGradient(0, 0, 0, 64);
+  gr.addColorStop(0, '#fff0cc'); gr.addColorStop(0.45, '#c9d4d0'); gr.addColorStop(1, '#52646a'); sx.fillStyle = gr; sx.fillRect(0, 0, 64, 64);
+  const env = new THREE.CubeTexture([sky, sky, sky, sky, sky, sky]); env.needsUpdate = true;
+  const alpha = new THREE.CanvasTexture(mk(0));
+  const mat = new THREE.MeshStandardMaterial({ color: '#2d6276', roughness: 0.05, metalness: 0.05, transparent: true, opacity: 0.62, alphaMap: alpha, normalMap: ripple, normalScale: new THREE.Vector2(0.7, 0.7), envMap: env, envMapIntensity: 0.85, depthWrite: false });
+  const mesh = new THREE.Mesh(wgeo, mat); mesh.renderOrder = 0.5; mesh.receiveShadow = true; scene.add(mesh);
+  let dark = null;
+  if (WATER.info.dark !== false && M.d.some((_, i) => i % 4 === 2 && M.d[i] > 40)) {
+    dark = new THREE.Mesh(wgeo, new THREE.MeshStandardMaterial({ color: '#121a12', roughness: 0.2, metalness: 0.3, transparent: true, opacity: 0.85, alphaMap: new THREE.CanvasTexture(mk(2)), envMap: env, envMapIntensity: 0.22, depthWrite: false }));
+    dark.renderOrder = 0.6; dark.position.y = 0.01; scene.add(dark);
+  }
+  return { mesh, mat, ripple, dark, mist: [], ships: [] };
+}
 const tableTop = new THREE.Mesh(new THREE.BoxGeometry(BW + 60, 1, BD + 50), new THREE.MeshStandardMaterial({ color: '#3a2918', roughness: 0.75 }));
 tableTop.position.set(0, -0.55, 8); tableTop.receiveShadow = true; scene.add(tableTop);
 if (DRESS) setTimeout(() => dressTable(), 0);
@@ -859,6 +897,7 @@ function drawOverlay() {
     }
   }
   if (reach && reachFrom) { poly(T[reachFrom].outline); ovx.lineWidth = 5; ovx.setLineDash([16, 12]); ovx.strokeStyle = 'rgba(255,240,200,0.9)'; ovx.stroke(); ovx.setLineDash([]); }
+  if (WATER && WATER.cut) { ovx.save(); ovx.globalCompositeOperation = 'destination-out'; ovx.drawImage(WATER.cut, 0, 0, OV.width, OV.height); ovx.restore(); ovx.drawImage(WATER.shore, 0, 0, OV.width, OV.height); }
   ovTex.needsUpdate = true;
   setHighlight();
 }
@@ -4289,7 +4328,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=fb15d55153').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=d601cb886d').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4497,7 +4536,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=fb15d55153').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=d601cb886d').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4585,6 +4624,82 @@ function fxScale() { const v = innerHeight * renderer.getPixelRatio() / (2 * Mat
 fxScale();
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); fxScale(); });
 const ease = (t) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+// ------------------------------------------------------------------ life on the water: river mist, and ships that sail about slowly
+const SHIP_SPAWNS = { Eriador: [['gondor', 0.06, 0.585], ['gondor', 0.11, 0.55]],
+  Gondor: [['gondor', 0.3, 0.8], ['gondor', 0.38, 0.73], ['corsair', 0.2, 0.86], ['corsair', 0.12, 0.72]], Rohan: [] };
+(function initWaterLife() {
+  if (!WSURF) return;
+  const lite = quality === 'Light';
+  // mist: soft sprites low over the rivers, breathing in and out
+  const mc = document.createElement('canvas'); mc.width = mc.height = 128; const mx = mc.getContext('2d'), rg = mx.createRadialGradient(64, 64, 4, 64, 64, 62);
+  rg.addColorStop(0, 'rgba(236,234,226,0.6)'); rg.addColorStop(1, 'rgba(236,234,226,0)'); mx.fillStyle = rg; mx.fillRect(0, 0, 128, 128);
+  const mt = new THREE.CanvasTexture(mc), pts = WATER.info.mist || [];
+  for (let i = 0; i < pts.length; i += lite ? 4 : 2) {
+    const [u, v] = pts[i], sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: mt, transparent: true, opacity: 0, depthWrite: false, fog: true }));
+    const base = new THREE.Vector3((u - 0.5) * BW, waterLevel(u, v) + 0.25 + Math.random() * 0.2, (v - 0.5) * BD);
+    sp.position.copy(base); sp.scale.set(3 + Math.random() * 2, 0.9, 1); sp.renderOrder = 2; scene.add(sp);
+    WSURF.mist.push({ sp, base, ph: Math.random() * 100 });
+  }
+  // ships: each wanders its own stretch of open water, never too near the shore
+  const nav = WATER.info.nav ? Uint8Array.from(atob(WATER.info.nav), (c) => c.charCodeAt(0)) : null; if (!nav) return;
+  const NW = WATER.info.w, NH = WATER.info.h, DEEP = 14;
+  const cell = (u, v) => { const x = Math.floor(u * NW), y = Math.floor(v * NH); return x < 0 || y < 0 || x >= NW || y >= NH ? -1 : y * NW + x; };
+  const deep = (u, v) => { const c = cell(u, v); return c >= 0 && nav[c] >= DEEP && u > 0.035 && u < 0.965 && v > 0.045 && v < 0.955; };
+  const area = (u, v) => { // the open water reachable from a spawn point
+    let c0 = cell(u, v); if (c0 < 0) return null;
+    if (nav[c0] < DEEP) { let best = -1, bd = 1e9; for (let i = 0; i < nav.length; i++) if (nav[i] >= DEEP) { const d = (i % NW - c0 % NW) ** 2 + (Math.floor(i / NW) - Math.floor(c0 / NW)) ** 2; if (d < bd) { bd = d; best = i; } } if (best < 0 || bd > 900) return null; c0 = best; }
+    const seen = new Uint8Array(nav.length), q = [c0], out = []; seen[c0] = 1;
+    while (q.length) { const c = q.pop(); out.push(c); const x = c % NW, y = Math.floor(c / NW);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const xx = x + dx, yy = y + dy, n = yy * NW + xx; if (xx >= 0 && yy >= 0 && xx < NW && yy < NH && !seen[n] && deep((xx + 0.5) / NW, (yy + 0.5) / NH)) { seen[n] = 1; q.push(n); } } }
+    return out.length > 40 ? { list: out, has: seen } : null;
+  };
+  const spawns = SHIP_SPAWNS[MAP_KEY] || [];
+  if (!spawns.length) return;
+  const models = {};
+  const getModel = (k) => models[k] ||= gltf.loadAsync('ships/' + k + '.glb').then((g) => {
+    const o = g.scene; if (k === 'gondor') o.rotation.y = Math.PI / 2;
+    o.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+    const w = new THREE.Group(); w.add(o); const b = new THREE.Box3().setFromObject(w), sz = b.getSize(new THREE.Vector3()), c = b.getCenter(new THREE.Vector3());
+    o.position.set(-c.x, -b.min.y - sz.y * 0.06, -c.z); w.scale.setScalar(2.4 / Math.max(sz.x, sz.z)); return w; });
+  for (const [k, u, v] of spawns.slice(0, lite ? 2 : 4)) {
+    const cells = area(u, v); if (!cells) continue;
+    getModel(k).then((proto) => {
+      const o = proto.clone(); scene.add(o);
+      const c = cells.list[Math.floor(Math.random() * cells.list.length)], su = (c % NW + 0.5) / NW, sv = (Math.floor(c / NW) + 0.5) / NH;
+      const sh = { o, cells, u: su, v: sv, head: Math.random() * 6.28, tu: su, tv: sv, ph: Math.random() * 10, speed: 0.22 + Math.random() * 0.1 };
+      WSURF.ships.push(sh); pickTarget(sh);
+    }).catch((e) => console.warn('ship model', e));
+  }
+  function clear(u0, v0, u1, v1) { for (let t = 0; t <= 1; t += 0.05) if (!deep(u0 + (u1 - u0) * t, v0 + (v1 - v0) * t)) return false; return true; }
+  function pickTarget(sh) {
+    for (let k = 0; k < 40; k++) { const c = sh.cells.list[Math.floor(Math.random() * sh.cells.list.length)], u = (c % NW + 0.5) / NW, v = (Math.floor(c / NW) + 0.5) / NH;
+      const d = Math.hypot((u - sh.u) * BW, (v - sh.v) * BD); if (d > 6 && clear(sh.u, sh.v, u, v)) { sh.tu = u; sh.tv = v; return; } }
+    sh.tu = sh.u; sh.tv = sh.v;   // boxed in: turn about and look again
+  }
+  WSURF.pickTarget = pickTarget;
+})();
+function stepWater(dt, now) {
+  if (!WSURF) return;
+  const t = now / 1000;
+  WSURF.ripple.offset.set(t * 0.012, t * 0.02);
+  const day = 1 - (todCur ? todCur.night : 0);
+  WSURF.mat.envMapIntensity = 0.3 + 0.55 * day;
+  const mistK = 0.22 + 0.25 * (todCur ? todCur.night : 0);
+  for (const m of WSURF.mist) { const k = 0.5 + 0.5 * Math.sin(t * 0.15 + m.ph); m.sp.material.opacity = mistK * k;
+    m.sp.position.set(m.base.x + Math.sin(t * 0.05 + m.ph) * 0.8, m.base.y + Math.sin(t * 0.3 + m.ph) * 0.05, m.base.z + Math.cos(t * 0.04 + m.ph) * 0.5); }
+  for (const sh of WSURF.ships) {
+    const dx = (sh.tu - sh.u) * BW, dz = (sh.tv - sh.v) * BD, dist = Math.hypot(dx, dz);
+    if (dist < 0.8) WSURF.pickTarget(sh);
+    const want = Math.atan2(dz, dx); let dh = want - sh.head; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+    sh.head += Math.max(-0.25 * dt, Math.min(0.25 * dt, dh));
+    const sp = sh.speed * (Math.abs(dh) > 1.2 ? 0.35 : 1) * Math.min(1, dist / 3 + 0.3);
+    const nu = sh.u + Math.cos(sh.head) * sp * dt / BW, nv = sh.v + Math.sin(sh.head) * sp * dt / BD;
+    const c = Math.floor(nv * WATER.info.h) * WATER.info.w + Math.floor(nu * WATER.info.w);
+    if (nu > 0 && nv > 0 && nu < 1 && nv < 1 && sh.cells.has[c]) { sh.u = nu; sh.v = nv; } else WSURF.pickTarget(sh);
+    sh.o.position.set((sh.u - 0.5) * BW, waterLevel(sh.u, sh.v) + Math.sin(t * 1.1 + sh.ph) * 0.03, (sh.v - 0.5) * BD);
+    sh.o.rotation.set(Math.sin(t * 0.9 + sh.ph) * 0.03, -sh.head, Math.sin(t * 0.7 + sh.ph) * 0.025, 'YXZ');
+  }
+}
 let last = performance.now();
 renderer.setAnimationLoop((now) => {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
@@ -4593,7 +4708,7 @@ renderer.setAnimationLoop((now) => {
     a.obj.position.lerpVectors(a.from, a.to, k); a.obj.position.y += Math.sin(Math.PI * k) * a.hop; if (t >= 1) { a.obj.position.copy(a.to); anims.splice(i, 1); } }
   for (let i = grows.length - 1; i >= 0; i--) { const g = grows[i], t = Math.min(1, (now - g.t0) / g.ms), k = t < 1 ? 1 - Math.pow(1 - t, 3) : 1;
     g.o.scale.setScalar(g.from + (g.to - g.from) * k); if (t >= 1) { grows.splice(i, 1); if (g.done) g.done(); } }
-  stepDrives(dt); stepLasting(dt, now); stepFx(dt);
+  stepDrives(dt); stepLasting(dt, now); stepFx(dt); stepWater(dt, now);
   if (S) { stepTod(dt); stepBanners(dt, now / 1000); stepAmbient(dt, now); followCam(dt); stepQol(dt, now); stepFlair2(dt, now); stepFlair3(dt, now); }
   if (fly) { const t = Math.min(1, (now - fly.s) / fly.ms), k = ease(t); camera.position.lerpVectors(fly.p0, fly.p1, k); controls.target.lerpVectors(fly.t0, fly.t1, k); if (t >= 1) fly = null; }
   stepDice(now);
@@ -4988,7 +5103,7 @@ function wireOnline(el) {
 })();
 window.__net = NET;
 
-window.__app = { refresh: () => { refresh(); renderUI(); }, startTour: () => startTour(), tourGo: (i) => tourGo(i), openSettings: (t) => openSettings(t), luaRun: (c) => luaRun(c, "dbg"), openDicePicker: (s) => openDicePicker(s), openFigPicker: (o) => openFigPicker(o), setFigure: (i, f) => setFigure(i, f), versusSplash: (n) => versusSplash(n, true), resultCeremony: (b) => resultCeremony(b), LEADERS: () => LEADERS, openBattle: (n) => openBattle(n), startAmbience: () => startAmbience(), uiSound: (k) => uiSound(k), ambienceTick: () => ambienceTick(), victoryScreen: () => victoryScreen(), AMB, armyHover: (a) => armyHover(a), historyHtml: (n) => historyHtml(n), fadeOwners: (c) => fadeOwners(c), turnCinematic: () => turnCinematic(), lootCart: (m) => lootCart(m), shots, syncRoads: () => { roadKey = ''; syncRoads(); }, showRoute: (p) => showRoute(p), pathTo: (a, b) => pathTo(a, b), drawWear: () => drawOverlay(), driving, syncScene, movePreview: (d, n) => movePreview(d, n), todoList: () => todoList(), startRecap: (x) => startRecap(x), battleAftermath: (b) => battleAftermath(b), captureSweep: (n, o) => captureSweep(n, o), keysHeld, onMove: (e) => onMove(e), draw: { start: (id) => startRouteDraw(S.agents.find(g => g.id === id)), add: (n) => drawAdd(n), close: () => drawClose(), finish: () => drawFinish(), state: () => routeDraw && { path: routeDraw.path, acts: routeDraw.acts } }, fx: () => ({ glow: GLOW.list.length, smoke: SMOKE.list.length, lasting: [...lasting.keys()] }), labelsShown: () => [...LABELS.values()].filter(e => e.style.display !== 'none').length, cards: async (id) => Promise.all(JSON.parse(luaCall('appCards', id)).map(c => cardURL(cardSrc(c)))), reachSize: () => reach ? reach.all.size : 0, openLedger, diceTop: () => shown.map(d => d.m.material[upFace(d.m.quaternion)].userData.v), holdInset: () => { insetUntil = Infinity; }, dice: () => ({ insetUntil, now: performance.now(), shown: shown.length, replay: !!replay, frame: !$('insetFrame').hidden }), select, renderUI, act: (a, f) => act(a, f), get S() { return S; }, things, camera, controls, toWorld, T, luaCall };
+window.__app = { refresh: () => { refresh(); renderUI(); }, water: () => WSURF && { ships: WSURF.ships.map((s) => [+s.u.toFixed(3), +s.v.toFixed(3)]), mist: WSURF.mist.length }, startTour: () => startTour(), tourGo: (i) => tourGo(i), openSettings: (t) => openSettings(t), luaRun: (c) => luaRun(c, "dbg"), openDicePicker: (s) => openDicePicker(s), openFigPicker: (o) => openFigPicker(o), setFigure: (i, f) => setFigure(i, f), versusSplash: (n) => versusSplash(n, true), resultCeremony: (b) => resultCeremony(b), LEADERS: () => LEADERS, openBattle: (n) => openBattle(n), startAmbience: () => startAmbience(), uiSound: (k) => uiSound(k), ambienceTick: () => ambienceTick(), victoryScreen: () => victoryScreen(), AMB, armyHover: (a) => armyHover(a), historyHtml: (n) => historyHtml(n), fadeOwners: (c) => fadeOwners(c), turnCinematic: () => turnCinematic(), lootCart: (m) => lootCart(m), shots, syncRoads: () => { roadKey = ''; syncRoads(); }, showRoute: (p) => showRoute(p), pathTo: (a, b) => pathTo(a, b), drawWear: () => drawOverlay(), driving, syncScene, movePreview: (d, n) => movePreview(d, n), todoList: () => todoList(), startRecap: (x) => startRecap(x), battleAftermath: (b) => battleAftermath(b), captureSweep: (n, o) => captureSweep(n, o), keysHeld, onMove: (e) => onMove(e), draw: { start: (id) => startRouteDraw(S.agents.find(g => g.id === id)), add: (n) => drawAdd(n), close: () => drawClose(), finish: () => drawFinish(), state: () => routeDraw && { path: routeDraw.path, acts: routeDraw.acts } }, fx: () => ({ glow: GLOW.list.length, smoke: SMOKE.list.length, lasting: [...lasting.keys()] }), labelsShown: () => [...LABELS.values()].filter(e => e.style.display !== 'none').length, cards: async (id) => Promise.all(JSON.parse(luaCall('appCards', id)).map(c => cardURL(cardSrc(c)))), reachSize: () => reach ? reach.all.size : 0, openLedger, diceTop: () => shown.map(d => d.m.material[upFace(d.m.quaternion)].userData.v), holdInset: () => { insetUntil = Infinity; }, dice: () => ({ insetUntil, now: performance.now(), shown: shown.length, replay: !!replay, frame: !$('insetFrame').hidden }), select, renderUI, act: (a, f) => act(a, f), get S() { return S; }, things, camera, controls, toWorld, T, luaCall };
 </script>
 
 </body></html>
