@@ -199,7 +199,7 @@ BUILDINGS = {
   { key = "fort",       name = "Fortifications",    short = "For", cost = 150, turns = 3, rules = "Battles here are Sieges and the defender gains a 400 pt garrison. While it holds, the owner's adjacent territories cannot be conquered, and adjacent Neutral territories take 1 extra turn for the enemy to conquer.", desc = "Siege + 400 pt garrison; protects adjacent friendly territories from conquest; adjacent Neutral land takes the enemy +1 turn." },
   { key = "city",       name = "City",              short = "Cty", cost = 200, turns = 4, rules = "Territory makes +25 RP per turn (50 total) and takes 1 extra turn to conquer.", desc = "+25 income; takes 1 more turn to conquer." },
   { key = "scouttower", name = "Scout Tower",       short = "ScT", cost = 100, turns = 2, rules = "Reveals enemy armies in adjacent territories. The owner gets +1 to all priority rolls in battles fought here. In battles here or in any adjacent territory, the owner's army chooses who deploys first, whatever the scenario rules or warband totals say.", desc = "Reveals armies in adjacent territories; +1 battle priority here; choose who deploys first here and next door." },
-  { key = "archery",    name = "Ballista Tower",    short = "Bal", cost = 50,  turns = 2, rules = "In battles here, the owner places a Ballista Tower in their deployment zone: Shoot Value 4+, range 48\", normal MESBG Ballista scatter rules. It can be fired up to three times a game, and is destroyed if an enemy model is in base contact with it and unengaged during a Fight phase.", desc = "Owner places a Ballista Tower (Shoot 4+, 48\", 3 shots) in their deployment zone here." },
+  { key = "archery",    name = "Ballista Tower",    short = "Bal", cost = 50,  turns = 2, rules = "In battles here, the owner places a Ballista Tower in their deployment zone: Shoot Value 4+, Strength 8, range 48\", normal MESBG Ballista scatter rules. It can be fired up to three times a game, and is destroyed if an enemy model is in base contact with it and unengaged during a Fight phase.", desc = "Owner places a Ballista Tower (Shoot 4+, S8, 48\", 3 shots) in their deployment zone here." },
   { key = "mapping",    name = "Land Mapping",      short = "Map", cost = 50,  turns = 2, rules = "In this territory and every territory next to it, nothing hinders the owner's movement: no road blockages, no snowed-in events, and Supply Wagons pay no extra for Neutral land.", desc = "Here and next door: road blockages, snow and Neutral land don't hinder the owner's pieces." },
 }
 BUILDING_BY_KEY = {}
@@ -1758,7 +1758,7 @@ function battleModifiers(n, atk, def)
     prio[t.owner] = prio[t.owner] + 1
     table.insert(lines, "Scout Tower: " .. t.owner .. " +1 to all priority rolls.")
   end
-  if t.b.archery and t.owner ~= "Neutral" then table.insert(lines, "Ballista Tower: " .. t.owner .. " places a Ballista Tower in their deployment zone (Shoot 4+, 48\", normal Ballista scatter; up to 3 shots a game; destroyed by an unengaged enemy model in base contact in a Fight phase).") end
+  if t.b.archery and t.owner ~= "Neutral" then table.insert(lines, "Ballista Tower: " .. t.owner .. " places a Ballista Tower in their deployment zone (Shoot 4+, Strength 8, 48\", normal Ballista scatter; up to 3 shots a game; destroyed by an unengaged enemy model in base contact in a Fight phase).") end
   -- Scout Towers here or next door: that side chooses who deploys first
   local towers = {}
   local near = { n }; for _, m in ipairs(ADJ[n] or {}) do near[#near + 1] = m end
