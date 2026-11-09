@@ -196,7 +196,7 @@ BUILDINGS = {
   { key = "slums",      name = "Slums",             short = "Slm", cost = 100, turns = 3, rules = "Lets you recruit Assassins. You can have as many Assassins as you have Slums.", desc = "Each allows 1 Assassin." },
   { key = "demolition", name = "Demolition Guild",  short = "Dem", cost = 75,  turns = 2, rules = "Lets you recruit Saboteurs. You can have as many Saboteurs as you have Demolition Guilds.", desc = "Each allows 1 Saboteur." },
   { key = "roads",      name = "Roads",             short = "Rd",  cost = 150, turns = 4, rules = "Leaving this region costs no movement: an army can use that once a turn, an agent or Supply Wagon up to three times a turn.", desc = "Leaving this region costs no movement (armies once a turn, agents and wagons up to 3 times)." },
-  { key = "fort",       name = "Fortifications",    short = "For", cost = 150, turns = 3, rules = "Battles here are Sieges and the defender gains a 400 pt garrison. While it holds, the owner's adjacent territories cannot be conquered, and adjacent Neutral territories take 1 extra turn for the enemy to conquer.", desc = "Siege + 400 pt garrison; protects adjacent friendly territories from conquest; adjacent Neutral land takes the enemy +1 turn." },
+  { key = "fort",       name = "Fortifications",    short = "For", cost = 150, turns = 3, rules = "Battles here are Sieges (fought from the turn after the enemy arrives) and the defender gains a 400 pt garrison. While it holds, the owner's adjacent territories cannot be conquered, and adjacent Neutral territories take 1 extra turn for the enemy to conquer.", desc = "Siege + 400 pt garrison; protects adjacent friendly territories from conquest; adjacent Neutral land takes the enemy +1 turn." },
   { key = "city",       name = "City",              short = "Cty", cost = 200, turns = 4, rules = "Territory makes +25 RP per turn (50 total) and takes 1 extra turn to conquer.", desc = "+25 income; takes 1 more turn to conquer." },
   { key = "scouttower", name = "Scout Tower",       short = "ScT", cost = 100, turns = 2, rules = "Reveals enemy armies in adjacent territories. The owner gets +1 to all priority rolls in battles fought here. In battles here or in any adjacent territory, the owner's army chooses who deploys first, whatever the scenario rules or warband totals say.", desc = "Reveals armies in adjacent territories; +1 battle priority here; choose who deploys first here and next door." },
   { key = "archery",    name = "Ballista Tower",    short = "Bal", cost = 50,  turns = 2, rules = "In battles here, the owner places a Ballista Tower in their deployment zone: Shoot Value 4+, Strength 8, range 48\", normal MESBG Ballista scatter rules. It can be fired up to three times a game, and is destroyed if an enemy model is in base contact with it and unengaged during a Fight phase.", desc = "Owner places a Ballista Tower (Shoot 4+, S8, 48\", 3 shots) in their deployment zone here." },
@@ -968,6 +968,7 @@ function advanceStage()
   if S.stage == #STAGES then
     pcall(eventsTurnEnd)
     pcall(resolveOrders)
+    pcall(noteSieges)   -- a siege begun this turn is dated this turn
     S.turn = S.turn + 1
     S.stage = 1
     startOfTurn()
@@ -1730,12 +1731,33 @@ end
 -- ===================================================================
 -- battles
 -- ===================================================================
+-- Sieges: an enemy army at a fortress starts a siege, and the siege battle is fought from the next turn on, never the turn it begins.
+function noteSieges()
+  if not S.started then return end
+  for n, t in ipairs(S.terr) do
+    local besieged = t.b.fort and t.owner ~= "Neutral" and #armiesIn(n, OTHER[t.owner]) > 0
+    if besieged and not t.siegeT then
+      t.siegeT = S.turn
+      clog(OTHER[t.owner] .. " lays siege to " .. tname(n) .. ": the assault comes on turn " .. (S.turn + 1) .. ".", nil, "territories")
+    elseif not besieged and t.siegeT then
+      t.siegeT = nil
+    end
+  end
+end
+-- true when territory n's siege may be fought this turn (or it isn't a siege at all)
+function siegeReady(n)
+  local t = S.terr[n]
+  if not (t.b.fort and t.owner ~= "Neutral") then return true end
+  return t.siegeT ~= nil and t.siegeT < S.turn
+end
+
 function battleTerritories()
+  pcall(noteSieges)
   local out = {}
   for n, t in ipairs(S.terr) do
     local g, e = #armiesIn(n, "Good") > 0, #armiesIn(n, "Evil") > 0
     local garrison = t.b.fort and t.owner ~= "Neutral" and #armiesIn(n, OTHER[t.owner]) > 0
-    if (g and e) or garrison then table.insert(out, n) end
+    if ((g and e) or garrison) and siegeReady(n) then table.insert(out, n) end
   end
   return out
 end

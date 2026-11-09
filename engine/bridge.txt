@@ -286,7 +286,8 @@ function appTerrInfo(n, viewer)
   for _, x in ipairs(t.q or {}) do local d = BUILDING_BY_KEY[x.key]; q[#q + 1] = { key = x.key, left = x.left, total = x.total or d.turns, halt = x.halt } end
   return JSON.encode({ conquer = conquestNeed(n), shield = sh, shieldName = sh and NAMES[sh] or nil, shields = shields, nearFort = nearFort,
                        borders = ADJ[n] or {}, capital = (n == S.settings.capGood) and "Good" or ((n == S.settings.capEvil) and "Evil" or nil),
-                       buildings = b, q = q, full = buildingCount(n) >= MAX_BUILDINGS, fortUp = fortUp })
+                       buildings = b, q = q, full = buildingCount(n) >= MAX_BUILDINGS, fortUp = fortUp,
+                       siege = t.siegeT and { by = OTHER[t.owner], since = t.siegeT, ready = siegeReady(n) } or nil })
 end
 
 -- Movement an agent has left this turn.

@@ -476,7 +476,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=3f83499d5c').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=3a8a5eb56e').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -1788,6 +1788,7 @@ function terrCard(n) {
     <span>To conquer</span><span>${I.conquer} End stage${I.conquer === 1 ? '' : 's'}</span><span>Borders</span><span>${I.borders.map(m => `<button class="link" data-goto="${m}" title="${esc(T[m].name)}">${m}</button>`).join(' ')}</span></div>`;
   const facts = [];
   if (t.conq) facts.push(t.conq.held ? `${t.conq.by} is here but can't conquer it while the fortress at ${T[t.conq.held].name} holds.` : `Being conquered by ${t.conq.by}: ${t.conq.prog || 0} of ${t.conq.need || '?'} turns.`);
+  if (I.siege) facts.push(I.siege.ready ? `Under siege by ${I.siege.by} since turn ${I.siege.since}: the siege battle can be fought this turn.` : `${I.siege.by} has laid siege here this turn: the siege battle is fought from turn ${I.siege.since + 1}.`);
   if (I.shield) facts.push(`Shielded by the fortress at ${I.shieldName}: can't be conquered while it holds.`);
   if (I.shields.length) facts.push(`Fortress: ${I.shields.join(', ')} can't be conquered while ${T[n].name} holds.`);
   for (const f of I.nearFort) facts.push(`Next to the ${f.owner} fortress at ${T[f.n].name}: takes ${OTHER_SIDE(f.owner)} 1 extra turn to conquer.`);
@@ -4286,7 +4287,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=3f83499d5c').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=3a8a5eb56e').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4494,7 +4495,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=3f83499d5c').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=3a8a5eb56e').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
