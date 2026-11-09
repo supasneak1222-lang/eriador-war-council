@@ -6228,7 +6228,8 @@ CARD_EX = {
 
 --[[ ===================================================================
      WAR COUNCIL - army lists pasted from the MESBG List Builder (v2024)
-     Accepts: the Summary text ("Copy to clipboard"), the Export JSON, or the Tabletop Simulator export.
+     Accepts: the Summary text ("Copy to clipboard"), the Export JSON, the Tabletop Simulator export,
+     or a Tabletop Admiral list (the same bracketed lines, which name heroes by their full title).
      =================================================================== ]]
 
 local MOUNT_WORDS = { "horse", "warg", "rider", "cavalry", "knight", "mount", "steed", "chariot", "pony", "elk", "boar",
@@ -6286,6 +6287,10 @@ function cardFor(name, list)
   if not e then
     k = normList(string.gsub(name or "", "%b()", ""))
     e = CARD_BY[k]
+  end
+  if not e then   -- Tabletop Admiral writes "Faramir, Captain of Gondor" where the List Builder has "Faramir"
+    local short = string.match(name or "", "^([^,]+),")
+    if short then k = normList(short); e = CARD_BY[k] end
   end
   if not e then return nil end
   local o = (list and CARD_OVER[normList(list) .. "|" .. k]) or e[2]
@@ -6402,6 +6407,13 @@ end
 local function parseTts(lines)
   local r = { source = "tts", entries = {}, units = 0, approx = true }
   for _, l in ipairs(lines) do
+    -- a heading above the units (a list name, perhaps with its points)
+    if l ~= "" and string.sub(l, 1, 1) ~= "(" and #r.entries == 0 then
+      local pts = tonumber(string.match(l, "(%d+)%s*[Pp]") or "")
+      if pts and pts >= 50 and pts <= 3000 then r.points = pts; r.approx = nil end
+      local nm = trim((string.gsub(string.gsub(l, "%b()", ""), "[%-|:]?%s*%d+%s*[Pp][%a]*", "")))
+      if nm ~= "" and not r.list then r.list = nm end
+    end
     local q, name, opts = string.match(l, "^%((%d+)x%s+(.-):%s*(.-)%)$")
     local hero = false
     if not q then
@@ -6469,7 +6481,7 @@ function parseRoster(text)
   local tts = 0
   for _, l in ipairs(lines) do if string.match(l, "^%(.-:.*%)$") then tts = tts + 1 end end
   local r = (tts > 0) and parseTts(lines) or parseText(lines)
-  if not r then return nil, "Couldn't find any units. Use the List Builder's 'Copy to clipboard' text." end
+  if not r then return nil, "Couldn't find any units. Paste the List Builder's 'Copy to clipboard' text or JSON, or a Tabletop Admiral list." end
   return r
 end
 

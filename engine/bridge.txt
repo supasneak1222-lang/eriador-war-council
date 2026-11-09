@@ -257,7 +257,7 @@ function appRaisePreview(side, size, merc, allied, cav, terr)
   local fit, warn = nil, {}
   if rr then
     fit = (rr.list and rosterFit(rr, side)) or "unknown"
-    if rr.approx then warn[#warn + 1] = "The Tabletop Simulator export has no points - set the army size yourself." end
+    if rr.approx then warn[#warn + 1] = "This list has no points (a Tabletop Admiral or Tabletop Simulator list): set the army size yourself." end
     if rr.points and rr.points > 1000 then warn[#warn + 1] = "This list is over 1000 points, the largest army size." end
     if rr.points and rr.points > size then warn[#warn + 1] = "The roster is " .. rr.points .. " pts - more than a " .. size .. " pt army can field." end
     if rr.mounted then warn[#warn + 1] = "Every model looks mounted - tick 'Cavalry only' if that's right." end
