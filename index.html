@@ -476,7 +476,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=c93abee8b3').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=3dbc19848f').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -965,7 +965,9 @@ const LANDMARKS = {
     'Barad-dûr': { always: true, hides: ['city', 'fort'], file: 'BaradDur', uv: [0.712, 0.135], size: 3.6, sink: 0.04, rot: -0.6, lit: true, beacon: '#ff7a1a', beaconPower: 26 },
     'Minas Morgul': { always: true, hides: ['city', 'fort'], file: 'MinasMorgul', uv: [0.569, 0.318], size: 4.4, sink: 0.05, rot: Math.PI, lit: true, beacon: '#9dffb0' } },
   // landmarks marked always stand whatever is built there: they are the place itself
-  Rohan: { 'Angrenost (Isengard)': { always: true, hides: ['city', 'fort'], file: 'Orthanc', uv: [0.3233, 0.5222], size: 1.25, rot: 0, gloss: true } },
+  Rohan: { 'Angrenost (Isengard)': { always: true, hides: ['city', 'fort'], file: 'Orthanc', uv: [0.3233, 0.5222], size: 1.5, rot: 0, gloss: true },
+    "Helm's Deep": { always: true, hides: ['city', 'fort'], file: 'HelmsDeep', uv: [0.39, 0.79], size: 4.6, sink: 0.05, rot: 0 },
+    'Edoras': { always: true, hides: ['city', 'fort'], file: 'Meduseld', uv: [0.525, 0.765], size: 3.8, sink: 0.05, rot: 0 } },
 }[MAP_KEY] || {};
 function landmarkFor(n, key) { const L = LANDMARKS[T[n] && T[n].name]; return L && !L.always && L.key === key ? L : null; }
 function landmarkHides(n, key, t) { const L = LANDMARKS[T[n] && T[n].name]; return !!(L && (L.hides || []).includes(key) && (L.always || (t.b && t.b[L.key]))); }   // its own walls stand for the fortress
@@ -4359,7 +4361,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=c93abee8b3').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=3dbc19848f').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4567,7 +4569,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=c93abee8b3').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=3dbc19848f').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
