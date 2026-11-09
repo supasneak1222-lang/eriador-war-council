@@ -484,7 +484,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=c5674378d6').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=5b7938947a').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -1663,7 +1663,7 @@ function renderLeft() {
   el.querySelectorAll('[data-bf]').forEach(x => x.oninput = x.onchange = () => { bForm[x.dataset.bf] = x.type === 'checkbox' ? x.checked : x.value; if (/^(atk|def|lost_\d+|in_\d+|win|out_\d+|ret_\d+)$/.test(x.dataset.bf)) renderLeft(); });
   const apply = el.querySelector('#bApply'); if (apply) apply.onclick = applyBattle;
   el.querySelectorAll('[data-ev]').forEach(x => x.onclick = () => {
-    const f = {}; for (const k of ['evPayT', 'evArmy']) if ($(k)) f[k] = $(k).value;
+    const f = {}; for (const k of ['evPayT', 'evArmy', 'evEyeT']) if ($(k)) f[k] = $(k).value;
     act(x.dataset.ev, f);
   });
   wireMerc(el);
@@ -2285,7 +2285,8 @@ function turnPanel() {
   const pending = E && ['Good', 'Evil'].some(sd => E[sd] && E[sd].pending);
   if (E && !pending && (E.roll >= 4 || S.stage > 2)) E = null;    // nothing happened, or it's old news by now
   const rules = (S.specials[acting] || []).filter(r => r.declare && r.ok);
-  if (!E && !rules.length) return '';
+  const eye = S.eye && S.eye.t === S.turn && S.terr[S.eye.n - 1] ? S.eye.n : 0;
+  if (!E && !rules.length && !eye) return '';
   let h = `<div class="panel turnp"><h2>This turn${ruleLink('events', 'Events')}${ruleLink('specials', 'Special rules')}</h2>`;
   if (E) {
     h += `<div style="color:var(--dim)">${esc(E.roller)} rolled ${E.roll} for random events${E.roll >= 4 ? ': nothing happens.' : ': both sides draw an event.'}</div>`;
@@ -2304,8 +2305,15 @@ function turnPanel() {
       h += `</div>`;
     }
   }
+  if (eye) h += `<div class="item" style="cursor:default;display:block"><span class="pill Evil">Evil</span><b>The Eye of Sauron</b> is on <button class="link" data-pan="${eye}">${esc(T[eye].name)}</button> this turn<br><span style="color:var(--dim);font-size:14px">Good armies that start in it, pass through it or stop in it are revealed. In a battle there, Good has +1 Courage and Evil -1 Courage.</span></div>`;
   for (const r of rules) {
     const status = r.ok ? 'Ready now' : r.cooldown > 0 ? `Ready on turn ${S.turn + r.cooldown}` : `${r.declare} stage`;
+    if (r.key === 'eye') {   // the Eye needs a territory to look upon
+      const opts = S.terr.map((t, i) => i + 1).sort((a, b) => T[a].name.localeCompare(T[b].name)).map(n => opt(n, T[n].name + (S.terr[n - 1].owner === 'Good' ? ' (Good)' : ''))).join('');
+      h += `<div class="item" style="cursor:default;display:block"><b>${esc(r.name)}</b><br><span style="color:var(--dim);font-size:14px">${esc(r.text)}</span>
+        <div class="row" style="margin-top:6px"><select id="evEyeT" style="flex:1;min-width:0">${opts}</select><button class="gold" data-ev="rule~${acting}~eye">Turn the Eye</button></div></div>`;
+      continue;
+    }
     h += `<div class="item" style="cursor:default"><span><b>${esc(r.name)}</b><br><span style="color:var(--dim);font-size:14px">${esc(status)}</span></span>
       <button class="${r.ok ? 'gold' : ''}" ${r.ok ? '' : 'disabled'} title="${esc(r.ok ? r.text : (r.why || r.text))}" data-ev="rule~${acting}~${r.key}">Use</button></div>`;
   }
@@ -4450,7 +4458,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=c5674378d6').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=5b7938947a').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4664,7 +4672,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=c5674378d6').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=5b7938947a').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }

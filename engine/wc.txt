@@ -1243,6 +1243,7 @@ function moveArmy(a, dest, march)
   elseif stopAt then dest = stopAt end
   if engaged then clog(a.name .. " ran into an enemy army at " .. tname(engaged) .. " and had to stop.", nil, "armies") end
   a.loc = dest
+  pcall(eyeAfterMove, a, from, path, dest)
   pcall(eventAfterMove, a)
   a.moved = true
   a.slow = nil
@@ -1836,6 +1837,7 @@ function battleModifiers(n, atk, def)
     end
   end
   pcall(reinforcementLines, n, lines)
+  if eyeOn(n) then table.insert(lines, "The Eye of Sauron is on " .. NAMES[n] .. ": the Good army has +1 Courage and the Evil army -1 Courage this battle.") end
   if hasRule("Good", "dunedain") and #agentsIn(n, "Good", "Scout") > 0 then
     table.insert(lines, "Dúnedain Scouts: a Good Scout is here, so Good's army gains a free Ranger of the North model for this battle.")
   end
@@ -3391,7 +3393,7 @@ SPECIAL_RULES = {
     Evil = {
       { key = "hordes", name = "The Hordes of Mordor", text = "Legion of Mordor armies with no Monsters or named Heroes take 1 turn less to raise and cost 50 RP less." },
       { key = "corsairs", name = "The Corsairs of Umbar", text = "When an Umbar army finishes raising, Evil may move it at once to a territory next to the sea or the Anduin. Umbar armies treat territories next to the sea or the Anduin as if they had Roads." },
-      { key = "eye", name = "The Eye of Sauron", text = "At the start of the Logistics stage Evil may pick a territory: armies that start in it, pass through it or stop in it are revealed. In a battle there, the Good army has +1 Courage and the Evil army -1 Courage." },
+      { key = "eye", name = "The Eye of Sauron", declare = "Logistics", text = "At the start of the Logistics stage Evil may pick a territory: armies that start in it, pass through it or stop in it are revealed. In a battle there, the Good army has +1 Courage and the Evil army -1 Courage." },
     },
   },
 }
@@ -3649,6 +3651,25 @@ function pillageBonusWhy(a)
   return table.concat(w, " and ")
 end
 
+-- ---------- Gondor: The Eye of Sauron ----------
+function eyeOn(n) return S.eye and S.eye.t == S.turn and S.eye.n == n end
+function eyeReveal(a)
+  if not a or a.side ~= "Good" or a.status == "building" then return end
+  a.seenLeader = a.seenLeader or {}; a.seenUnits = a.seenUnits or {}
+  if a.seenLeader.Evil and a.seenUnits.Evil then return end
+  local pub = publicName(a)
+  a.seenLeader.Evil = true; a.seenUnits.Evil = true
+  clog("The Eye of Sauron sees " .. pub .. " at " .. tname(S.eye.n) .. ": it is " .. a.name ..
+       ((a.leader and a.leader ~= "") and (", led by " .. a.leader) or "") .. ".", nil, "armies")
+end
+-- an army that moved: did its road take it into the Eye's sight?
+function eyeAfterMove(a, from, path, dest)
+  if not (S.eye and S.eye.t == S.turn) then return end
+  local seen = (from == S.eye.n) or (dest == S.eye.n)
+  for _, m in ipairs(path or {}) do if m == S.eye.n then seen = true end; if m == dest then break end end
+  if seen then eyeReveal(a) end
+end
+
 -- Extra movement this turn (Iron Fist of Angmar).
 function ruleMoveBonus(a)
   if a.side == "Evil" and S.ironFist == S.turn then return 1 end
@@ -3676,6 +3697,10 @@ function canDeclare(side, key)
   local cd = ruleCooldown(side, key)
   if cd > 0 then return r.name .. " is ready again in " .. cd .. " turn" .. ((cd == 1) and "" or "s") .. " (turn " .. (S.turn + cd) .. ")." end
   if key == "palantir" and S.prio then return "Priority has already been rolled this turn." end
+  if key == "eye" then
+    if S.eye and S.eye.t == S.turn then return "The Eye is already on " .. tname(S.eye.n) .. " this turn." end
+    if not logisticsUntouched() and not S.settings.override then return "It must be used at the start of the Logistics stage, before either player does anything." end
+  end
   if key == "ironfist" then
     if S.ironFist == S.turn then return "Already declared this turn." end
     if not logisticsUntouched() and not S.settings.override then return "It must be declared before either player does anything this Logistics stage." end
@@ -3683,9 +3708,10 @@ function canDeclare(side, key)
   return true
 end
 
-function declareRule(side, key)
+function declareRule(side, key, n)
   local ok = canDeclare(side, key)
   if ok ~= true then return ok end
+  if key == "eye" and not (n and S.terr[n]) then return "Pick the territory the Eye looks upon." end
   local r = hasRule(side, key)
   S.ruleUsed = S.ruleUsed or {}
   S.ruleUsed[side .. ":" .. key] = S.turn
@@ -3696,6 +3722,10 @@ function declareRule(side, key)
     S.first = nil
     clog("Good gazed into Círdan's Palantír and wins priority this turn. Good chooses who acts first.", nil, "armies")
     pcall(rollEvents)
+  elseif key == "eye" then
+    S.eye = { t = S.turn, n = n }
+    clog("Evil turned the Eye of Sauron on " .. tname(n) .. ": armies that start in it, pass through it or stop in it this turn are revealed. In a battle there, the Good army has +1 Courage and the Evil army -1 Courage.", nil, "armies")
+    for _, a in ipairs(S.armies) do if a.loc == n then eyeReveal(a) end end
   elseif key == "ironfist" then
     S.ironFist = S.turn
     local wk = {}
@@ -9995,6 +10025,7 @@ function chronicleBackfill()
     if side and ev[#ev] and ev[#ev].t == e.t then ev[#ev][side] = { name = name, detail = detail } end
     if string.find(m, "Palant", 1, true) and string.find(m, "wins priority", 1, true) then table.insert(rl, { t = e.t, s = "Good", k = "palantir" }) end
     if string.find(m, "declared the Iron Fist of Angmar", 1, true) then table.insert(rl, { t = e.t, s = "Evil", k = "ironfist" }) end
+    if string.find(m, "turned the Eye of Sauron", 1, true) then table.insert(rl, { t = e.t, s = "Evil", k = "eye" }) end
     local pg, pe = string.match(m, "^Priority: Good (%d), Evil (%d)")
     if pg then table.insert(dice, { t = e.t, s = "Good", w = "Priority", n = 6, v = tonumber(pg) }); table.insert(dice, { t = e.t, s = "Evil", w = "Priority", n = 6, v = tonumber(pe) }) end
   end
@@ -12156,7 +12187,7 @@ function uiRun(player, arg)
       end
     else u.confirm = "brestore"; keepConfirm = true end
   elseif a == "prio" then r = rollPriority(); say(pk, r)
-  elseif a == "rule" then r = declareRule(p1, p2); say(pk, r, "Special rule used.")
+  elseif a == "rule" then r = declareRule(p1, p2, numOf(f.evEyeT)); say(pk, r, "Special rule used.")
   elseif a == "evmerc" then
     r = hireMercs(p1, numOf(f.evMercT), { name = f.evMercName, leader = f.evMercLeader, list = f.evMercList, units = f.evMercUnits,
                                           named = f.evMercNamed == "True", cavalry = f.evMercCav == "True", canMarch = f.evMercMarch == "True", roster = u.pasteRoster })
