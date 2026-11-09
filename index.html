@@ -476,7 +476,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=4437d5fd80').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=2def4d092b').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -3458,10 +3458,17 @@ function stepAmbient(dt, now) {
     }
     for (const sd of ['Good', 'Evil']) { const n = S.capitals && S.capitals[sd]; if (!n || things.has(`b:${n}:city`)) continue; if (Math.random() > 0.6) continue;
       spawn(SMOKE, { p: toWorld(...T[n].label, 2.2).add(new THREE.Vector3(rnd(1.5), 0, rnd(1.5))), v: new THREE.Vector3(0.35, 0.9, 0), drag: 0.15, lift: 0.04, life: 4.5, s0: 0.7, s1: 3.4, c0: COL.chimney, c1: COL.chimneyEnd, a: 0.5 }); }
+    // Orodruin smokes, and now and then spits embers
+    if (OROD && Math.random() < 0.8) {
+      spawn(SMOKE, { p: OROD.clone().add(new THREE.Vector3(rnd(0.25), 0.2, rnd(0.25))), v: new THREE.Vector3(0.3 + rnd(0.15), 1.1 + Math.random() * 0.5, rnd(0.15)), drag: 0.12, lift: 0.05, life: 6 + Math.random() * 2,
+        s0: 0.6, s1: 4.2, c0: new THREE.Color('#8c817a'), c1: new THREE.Color('#4a4340'), a: 0.6 });
+      if (Math.random() < 0.35) spawn(GLOW, { p: OROD.clone().add(new THREE.Vector3(rnd(0.2), 0.1, rnd(0.2))), v: new THREE.Vector3(rnd(0.6), 1.4 + Math.random(), rnd(0.6)), drag: 0.5, life: 1.2, s0: 0.12, s1: 0.05, c0: new THREE.Color('#ffb347'), c1: new THREE.Color('#ff4a12'), a: 0.9 });
+    }
   }
   stepWeather(dt);
 }
 let ambAcc = 0;
+const OROD = (() => { const n = Object.keys(T).find(k => T[k].name === 'Orodruin'); return n ? toWorld(0.6519, 0.1760, 0) : null; })();
 // --- events seen on the map: snow, drought, eclipse, sickness, gifts, holidays...
 function eventsNow() { const E = S && S.events && S.events.t === S.turn ? S.events : null; return E ? ['Good', 'Evil'].map(sd => E[sd] && { side: sd, ...E[sd] }).filter(Boolean) : []; }
 function eventOn(key) { return eventsNow().some(e => e.key === key); }
@@ -4279,7 +4286,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=4437d5fd80').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=2def4d092b').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4487,7 +4494,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=4437d5fd80').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=2def4d092b').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
