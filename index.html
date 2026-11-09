@@ -484,7 +484,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=ac85521300').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=c5674378d6').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -4450,12 +4450,18 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=ac85521300').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=c5674378d6').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
 const knownToEnemy = (a) => !S.settings.hidden || !!(a.seenLeader && a.seenLeader[OTHER_OF[a.side]]);
-function armyFile(a) { return a.figure && LEADER_BY.has(a.figure) && knownToEnemy(a) ? 'leaders/' + a.figure : (a.side === 'Good' ? 'Good_Army' : 'Evil_Army'); }
+// an army whose leader is hidden shows its theatre's captain
+const THEATRE_CAPTAIN = { Gondor: { Good: 'captain_of_minas_tirith', Evil: 'morannon_orc_captain' }, Rohan: { Good: 'captain_of_rohan', Evil: 'uruk_hai_captain' } }[MAP_KEY] || {};
+function armyFile(a) {
+  if (a.figure && LEADER_BY.has(a.figure) && knownToEnemy(a)) return 'leaders/' + a.figure;
+  const cap = THEATRE_CAPTAIN[a.side]; if (cap && LEADER_BY.has(cap)) return 'leaders/' + cap;
+  return a.side === 'Good' ? 'Good_Army' : 'Evil_Army';
+}
 let leaderNormP = null;
 function leaderNorm() { return leaderNormP || (leaderNormP = (async () => { const g = await MODEL_CACHE['Good_Army']; return { size: g.foot * 2 * 1.1, maxH: g.h * 1.05 }; })()); }
 function ownMaterials(o) { o.traverse(m => { if (m.isMesh && !m.userData.ownMat) { m.material = m.material.clone(); m.userData.ownMat = true; } }); }
@@ -4658,7 +4664,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=ac85521300').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=c5674378d6').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -5237,7 +5243,7 @@ function wireOnline(el) {
 })();
 window.__net = NET;
 
-window.__app = { refresh: () => { refresh(); renderUI(); }, water: () => WSURF && { ships: WSURF.ships.map((s) => [+s.u.toFixed(3), +s.v.toFixed(3)]), mist: WSURF.mist.length }, startTour: () => startTour(), tourGo: (i) => tourGo(i), openSettings: (t) => openSettings(t), luaRun: (c) => luaRun(c, "dbg"), openDicePicker: (s) => openDicePicker(s), openFigPicker: (o) => openFigPicker(o), setFigure: (i, f) => setFigure(i, f), versusSplash: (n) => versusSplash(n, true), resultCeremony: (b) => resultCeremony(b), LEADERS: () => LEADERS, openBattle: (n) => openBattle(n), startAmbience: () => startAmbience(), uiSound: (k) => uiSound(k), ambienceTick: () => ambienceTick(), victoryScreen: () => victoryScreen(), AMB, armyHover: (a) => armyHover(a), historyHtml: (n) => historyHtml(n), fadeOwners: (c) => fadeOwners(c), turnCinematic: () => turnCinematic(), lootCart: (m) => lootCart(m), shots, syncRoads: () => { roadKey = ''; syncRoads(); }, showRoute: (p) => showRoute(p), pathTo: (a, b) => pathTo(a, b), drawWear: () => drawOverlay(), driving, syncScene, movePreview: (d, n) => movePreview(d, n), todoList: () => todoList(), startRecap: (x) => startRecap(x), battleAftermath: (b) => battleAftermath(b), captureSweep: (n, o) => captureSweep(n, o), keysHeld, onMove: (e) => onMove(e), draw: { start: (id) => startRouteDraw(S.agents.find(g => g.id === id)), add: (n) => drawAdd(n), close: () => drawClose(), finish: () => drawFinish(), state: () => routeDraw && { path: routeDraw.path, acts: routeDraw.acts } }, fx: () => ({ glow: GLOW.list.length, smoke: SMOKE.list.length, lasting: [...lasting.keys()] }), labelsShown: () => [...LABELS.values()].filter(e => e.style.display !== 'none').length, cards: async (id) => Promise.all(JSON.parse(luaCall('appCards', id)).map(c => cardURL(cardSrc(c)))), reachSize: () => reach ? reach.all.size : 0, openLedger, diceTop: () => shown.map(d => d.m.material[upFace(d.m.quaternion)].userData.v), holdInset: () => { insetUntil = Infinity; }, dice: () => ({ insetUntil, now: performance.now(), shown: shown.length, replay: !!replay, frame: !$('insetFrame').hidden }), select, renderUI, act: (a, f) => act(a, f), get S() { return S; }, things, camera, controls, toWorld, T, luaCall };
+window.__app = { armyFile: (a) => armyFile(a), refresh: () => { refresh(); renderUI(); }, water: () => WSURF && { ships: WSURF.ships.map((s) => [+s.u.toFixed(3), +s.v.toFixed(3)]), mist: WSURF.mist.length }, startTour: () => startTour(), tourGo: (i) => tourGo(i), openSettings: (t) => openSettings(t), luaRun: (c) => luaRun(c, "dbg"), openDicePicker: (s) => openDicePicker(s), openFigPicker: (o) => openFigPicker(o), setFigure: (i, f) => setFigure(i, f), versusSplash: (n) => versusSplash(n, true), resultCeremony: (b) => resultCeremony(b), LEADERS: () => LEADERS, openBattle: (n) => openBattle(n), startAmbience: () => startAmbience(), uiSound: (k) => uiSound(k), ambienceTick: () => ambienceTick(), victoryScreen: () => victoryScreen(), AMB, armyHover: (a) => armyHover(a), historyHtml: (n) => historyHtml(n), fadeOwners: (c) => fadeOwners(c), turnCinematic: () => turnCinematic(), lootCart: (m) => lootCart(m), shots, syncRoads: () => { roadKey = ''; syncRoads(); }, showRoute: (p) => showRoute(p), pathTo: (a, b) => pathTo(a, b), drawWear: () => drawOverlay(), driving, syncScene, movePreview: (d, n) => movePreview(d, n), todoList: () => todoList(), startRecap: (x) => startRecap(x), battleAftermath: (b) => battleAftermath(b), captureSweep: (n, o) => captureSweep(n, o), keysHeld, onMove: (e) => onMove(e), draw: { start: (id) => startRouteDraw(S.agents.find(g => g.id === id)), add: (n) => drawAdd(n), close: () => drawClose(), finish: () => drawFinish(), state: () => routeDraw && { path: routeDraw.path, acts: routeDraw.acts } }, fx: () => ({ glow: GLOW.list.length, smoke: SMOKE.list.length, lasting: [...lasting.keys()] }), labelsShown: () => [...LABELS.values()].filter(e => e.style.display !== 'none').length, cards: async (id) => Promise.all(JSON.parse(luaCall('appCards', id)).map(c => cardURL(cardSrc(c)))), reachSize: () => reach ? reach.all.size : 0, openLedger, diceTop: () => shown.map(d => d.m.material[upFace(d.m.quaternion)].userData.v), holdInset: () => { insetUntil = Infinity; }, dice: () => ({ insetUntil, now: performance.now(), shown: shown.length, replay: !!replay, frame: !$('insetFrame').hidden }), select, renderUI, act: (a, f) => act(a, f), get S() { return S; }, things, camera, controls, toWorld, T, luaCall };
 </script>
 
 </body></html>
