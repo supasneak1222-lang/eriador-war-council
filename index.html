@@ -300,6 +300,14 @@ a.btn-link:hover{filter:brightness(1.08)}
 #popup .phead .big{font-size:clamp(24px,4vw,36px);text-transform:uppercase} #popup .big.Good{color:#a9dfb8} #popup .big.Evil{color:#f4b3a9}
 #popup .pbody{overflow:auto;padding:12px 16px} #popup .pbody h3{font-family:var(--display);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold);margin:10px 0 4px}
 #popup .pfoot{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--line2)}
+#lmPanel{position:fixed;right:16px;top:calc(64px + env(safe-area-inset-top,0px));width:330px;max-width:calc(100vw - 32px);max-height:calc(100vh - 90px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;z-index:3;box-sizing:border-box;color:var(--ink);font-family:var(--body)}
+#lmPanel select{width:100%;margin:6px 0;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px}
+#lmPanel .lmrow select{width:auto;margin:0;padding:1px 3px}
+.lmhead{display:flex;justify-content:space-between;align-items:center;font-family:var(--display);color:var(--gold)}
+.lmrow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line2)}
+.lmrow>span{flex:1}.lmrow small{display:block;color:var(--dim2);font-size:12px}
+.lmrow input[type=range]{width:120px}.lmrow output{width:42px;text-align:right;color:var(--dim)}
+.lmpad{display:grid;grid-template-columns:repeat(4,30px);gap:4px}.lmbtns{display:flex;gap:8px;margin:8px 0}
 #settings{position:fixed;inset:0;background:#0b0805b8;display:flex;align-items:flex-start;justify-content:center;z-index:3;padding:calc(64px + env(safe-area-inset-top,0px)) 16px 16px;box-sizing:border-box}
 .setrow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line2)}
 .setrow small{display:block;color:var(--dim);font-size:14px}
@@ -476,7 +484,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=6b54e90cd7').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=ac85521300').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -684,8 +692,9 @@ const [boardImg, hImg, tImg] = await Promise.all([loadImg(ASSET + 'board.jpg'), 
 // the water: R = rivers and seas, G = open water (seas, great lakes), B = dark water (the Sea of Nurn); shore = surf and river banks
 const WATER = await Promise.all([loadImg(ASSET + 'water.png'), loadImg(ASSET + 'shore.png'), fetch(ASSET + 'water.json').then(r => r.json())])
   .then(([w, sh, info]) => ({ M: pixels(w), shore: sh, info })).catch((e) => { console.warn('no water for this map', e); return null; });
+function boardY(u, v) { const w = wAt(u, v); return hAt(u, v) - (w > 0.02 ? 0.5 * Math.min(1, w * 1.4) : 0); }   // the board's surface, channels carved
 function wAt(u, v, ch = 0) { if (!WATER || u < 0 || v < 0 || u > 1 || v > 1) return 0; const M = WATER.M; return M.d[(Math.floor(v * (M.h - 1)) * M.w + Math.floor(u * (M.w - 1))) * 4 + ch] / 255; }
-const HM = pixels(hImg), TM = pixels(tImg);
+const HM = pixels(hImg), TM = pixels(tImg), HM0 = HM.d.slice();
 const BW = 150, BD = 150 * hImg.height / hImg.width, RELIEF = 7;
 function hAt(u, v) {
   const x = Math.min(HM.w - 1.001, Math.max(0, u * (HM.w - 1))), y = Math.min(HM.h - 1.001, Math.max(0, v * (HM.h - 1)));
@@ -725,7 +734,7 @@ camera.position.copy(HOME.pos); controls.target.copy(HOME.target);
 
 const boardTex = new THREE.Texture(boardImg); boardTex.colorSpace = THREE.SRGBColorSpace; boardTex.anisotropy = renderer.capabilities.getMaxAnisotropy(); boardTex.needsUpdate = true;
 const geo = new THREE.PlaneGeometry(BW, BD, 820, 658); geo.rotateX(-Math.PI / 2);
-{ const p = geo.attributes.position, uv = geo.attributes.uv; for (let i = 0; i < p.count; i++) { const u = uv.getX(i), v = 1 - uv.getY(i), w = wAt(u, v); p.setY(i, hAt(u, v) - (w > 0.02 ? 0.5 * Math.min(1, w * 1.4) : 0)); } geo.computeVertexNormals(); }
+{ const p = geo.attributes.position, uv = geo.attributes.uv; for (let i = 0; i < p.count; i++) p.setY(i, boardY(uv.getX(i), 1 - uv.getY(i))); geo.computeVertexNormals(); }
 const board = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.95, metalness: 0 }));
 board.receiveShadow = true; board.castShadow = true; scene.add(board);
 const OV = document.createElement('canvas'); OV.width = 4096; OV.height = Math.round(4096 * BD / BW); const ovx = OV.getContext('2d');
@@ -983,6 +992,84 @@ function landmarkBeacon(o, L) {
   const light = new THREE.PointLight(col, L.beaconPower || 14, 6, 1.8); light.position.copy(halo.position); o.add(light);
   o.userData.beacon = { halo, light, ph: Math.random() * 10 };
 }
+// ------------------------------------------------------------------ landmark adjustment (this browser): move, turn, size, height, and the ground beneath
+const LM_KEY = 'eriador.landmarks.' + MAP_KEY, LM_DEFAULT = JSON.parse(JSON.stringify(LANDMARKS));
+const lmSaved = (() => { try { return JSON.parse(localStorage.getItem(LM_KEY) || '{}'); } catch (e) { return {}; } })();
+for (const [nm, v] of Object.entries(lmSaved)) if (LANDMARKS[nm]) Object.assign(LANDMARKS[nm], v);
+function lmStore(nm) { const L = LANDMARKS[nm], d = LM_DEFAULT[nm], o = {};
+  for (const k of ['uv', 'size', 'rot', 'sink', 'ground']) if (JSON.stringify(L[k]) !== JSON.stringify(d[k])) o[k] = L[k];
+  if (Object.keys(o).length) lmSaved[nm] = o; else delete lmSaved[nm];
+  try { localStorage.setItem(LM_KEY, JSON.stringify(lmSaved)); } catch (e) {} }
+function applyGround() {
+  HM.d.set(HM0);
+  for (const L of Object.values(LANDMARKS)) { const g = L.ground; if (!g) continue;
+    const lv = g.level / RELIEF * 255, R = g.radius, F = Math.max(0.6, R * 0.35), pu = (HM.w - 1) / BW, pv = (HM.h - 1) / BD;
+    const cx = L.uv[0] * (HM.w - 1), cy = L.uv[1] * (HM.h - 1), rx = Math.ceil((R + F) * pu) + 1, ry = Math.ceil((R + F) * pv) + 1;
+    for (let y = Math.max(0, Math.floor(cy - ry)); y <= Math.min(HM.h - 1, Math.ceil(cy + ry)); y++) for (let x = Math.max(0, Math.floor(cx - rx)); x <= Math.min(HM.w - 1, Math.ceil(cx + rx)); x++) {
+      const d = Math.hypot((x - cx) / pu, (y - cy) / pv); if (d > R + F) continue;
+      let w = d <= R ? 1 : 1 - (d - R) / F; w = w * w * (3 - 2 * w); const i = (y * HM.w + x) * 4; HM.d[i] = HM.d[i] * (1 - w) + lv * w; } }
+}
+function rebuildGround() {
+  applyGround();
+  const p = geo.attributes.position, uv = geo.attributes.uv; for (let i = 0; i < p.count; i++) p.setY(i, boardY(uv.getX(i), 1 - uv.getY(i)));
+  p.needsUpdate = true; geo.computeVertexNormals(); geo.computeBoundingSphere();
+}
+if (Object.values(LANDMARKS).some((L) => L.ground)) rebuildGround();
+const lmObj = (L) => [...things.values()].find((o) => o.userData.landmark === L);
+const lmTerr = (nm) => +Object.keys(T).find((k) => T[k].name === nm);
+function lmRefresh(nm, ground) {
+  const L = LANDMARKS[nm];
+  if (ground) { rebuildGround(); for (const [k, o] of things) if (o.userData.terr && !busy(k, o)) place(k, o, o.userData.terr); for (const [fn, f] of flags) { scene.remove(f.g); flags.delete(fn); } }
+  const o = lmObj(L); if (o) { o.scale.setScalar(L.size / (o.userData.lmBase || L.size)); place(o.userData.key, o, o.userData.terr); }
+  const n = lmTerr(nm), f = flags.get(n); if (f) { scene.remove(f.g); flags.delete(n); } try { syncFlags(); } catch (e) {}
+  lmStore(nm);
+}
+let lmSel = null;
+function openLandmarks() {
+  const names = Object.keys(LANDMARKS); if (!names.length) return;
+  if (!lmSel || !LANDMARKS[lmSel]) lmSel = names[0];
+  let el = $('lmPanel'); if (!el) { el = document.createElement('div'); el.id = 'lmPanel'; document.body.append(el); }
+  el.hidden = false; drawLandmarks();
+}
+function drawLandmarks() {
+  const el = $('lmPanel'); if (!el || el.hidden) return;
+  const L = LANDMARKS[lmSel], D = LM_DEFAULT[lmSel], g = L.ground, deg = Math.round((L.rot || 0) * 180 / Math.PI);
+  const row = (label, inner, sub) => `<div class="lmrow"><span>${label}${sub ? `<small>${sub}</small>` : ''}</span>${inner}</div>`;
+  el.innerHTML = `<div class="lmhead"><b>Landmarks</b><button data-lm="close" title="Close">✕</button></div>
+    <select data-lm="pick">${Object.keys(LANDMARKS).map((k) => `<option ${k === lmSel ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select>
+    <div class="lmbtns"><button data-lm="look">Look at it</button><button data-lm="reset">Reset</button></div>
+    ${row('Move', `<span class="lmpad"><button data-lm="mv~0~-1">▲</button><button data-lm="mv~-1~0">◀</button><button data-lm="mv~1~0">▶</button><button data-lm="mv~0~1">▼</button></span>`, 'North, west, east, south · ' + `<select data-lm="step">${[0.1, 0.25, 0.5, 1].map((x) => `<option ${x === (window.__lmStep || 0.25) ? 'selected' : ''}>${x}</option>`).join('')}</select> per press`)}
+    ${row('Turn', `<input type="range" min="-180" max="180" step="1" value="${deg}" data-lm="rot"><output>${deg}°</output>`)}
+    ${row('Size', `<input type="range" min="0.3" max="3" step="0.01" value="${(L.size / D.size).toFixed(2)}" data-lm="size"><output>${Math.round(L.size / D.size * 100)}%</output>`)}
+    ${row('Height', `<input type="range" min="-0.4" max="0.4" step="0.005" value="${(-(L.sink || 0)).toFixed(3)}" data-lm="sink"><output>${Math.round(-(L.sink || 0) * 100)}</output>`, 'Raise or sink it into the ground')}
+    ${row('Level the ground', `<button class="${g ? 'on' : ''}" data-lm="gtog">${g ? 'On' : 'Off'}</button>`, 'A flat patch of ground under it')}
+    ${g ? row('Ground height', `<input type="range" min="-1" max="7" step="0.02" value="${g.level.toFixed(2)}" data-lm="glevel"><output>${g.level.toFixed(2)}</output>`) + row('Ground width', `<input type="range" min="0.5" max="9" step="0.1" value="${g.radius.toFixed(1)}" data-lm="grad"><output>${g.radius.toFixed(1)}</output>`) : ''}
+    <p class="hint">Saved in this browser. When you're happy, copy the settings and send them over to make them the default.</p>
+    <div class="lmbtns"><button class="gold" data-lm="copy">Copy settings</button></div>`;
+  el.querySelectorAll('[data-lm]').forEach((c) => {
+    const a = c.dataset.lm, ev = c.tagName === 'INPUT' ? (a === 'glevel' || a === 'grad' ? 'change' : 'input') : (c.tagName === 'SELECT' ? 'change' : 'click');
+    c.addEventListener(ev, () => lmAct(a, c));
+    if (c.tagName === 'INPUT') c.addEventListener('input', () => { const out = c.nextElementSibling; if (out) out.textContent = a === 'rot' ? c.value + '°' : a === 'size' ? Math.round(c.value * 100) + '%' : a === 'sink' ? Math.round(c.value * 100) : (+c.value).toFixed(a === 'grad' ? 1 : 2); });
+  });
+}
+function lmAct(a, c) {
+  const L = LANDMARKS[lmSel], D = LM_DEFAULT[lmSel];
+  if (a === 'close') { $('lmPanel').hidden = true; return; }
+  if (a === 'pick') { lmSel = c.value; drawLandmarks(); return; }
+  if (a === 'step') { window.__lmStep = +c.value; return; }
+  if (a === 'look') { const t = toWorld(...L.uv); fly = { p0: camera.position.clone(), t0: controls.target.clone(), p1: t.clone().add(new THREE.Vector3(L.size * 1.4, L.size * 1.8, L.size * 2.2)), t1: t, s: performance.now(), ms: 900 }; return; }
+  if (a === 'reset') { const hadGround = !!L.ground || !!D.ground; for (const k of ['uv', 'size', 'rot', 'sink', 'ground']) L[k] = D[k] === undefined ? undefined : JSON.parse(JSON.stringify(D[k])); lmRefresh(lmSel, hadGround); drawLandmarks(); return; }
+  if (a.startsWith('mv~')) { const [, dx, dz] = a.split('~').map(Number), st = window.__lmStep || 0.25; L.uv = [L.uv[0] + dx * st / BW, L.uv[1] + dz * st / BD]; lmRefresh(lmSel, !!L.ground); return; }
+  if (a === 'rot') { L.rot = +c.value * Math.PI / 180; lmRefresh(lmSel); return; }
+  if (a === 'size') { L.size = +(D.size * c.value).toFixed(3); lmRefresh(lmSel); return; }
+  if (a === 'sink') { L.sink = -c.value; lmRefresh(lmSel); return; }
+  if (a === 'gtog') { L.ground = L.ground ? undefined : { level: +hAt(...L.uv).toFixed(2), radius: +(L.size * 0.65).toFixed(1) }; lmRefresh(lmSel, true); drawLandmarks(); return; }
+  if (a === 'glevel') { L.ground.level = +c.value; lmRefresh(lmSel, true); return; }
+  if (a === 'grad') { L.ground.radius = +c.value; lmRefresh(lmSel, true); return; }
+  if (a === 'copy') { const txt = JSON.stringify({ theatre: MAP_KEY, landmarks: lmSaved }, null, 1);
+    const done = () => { c.textContent = 'Copied'; setTimeout(() => { c.textContent = 'Copy settings'; }, 1600); };
+    try { navigator.clipboard.writeText(txt).then(done, () => prompt('Copy these settings:', txt)); } catch (e) { prompt('Copy these settings:', txt); } }
+}
 function landmarkY(L) { let lo = 1e9; for (let i = 0; i < 25; i++) { const a = i * 2.4, r = (i / 25) * L.size * 0.45; lo = Math.min(lo, hAt(L.uv[0] + Math.cos(a) * r / BW, L.uv[1] + Math.sin(a) * r / BD)); } return lo - 0.05; }
 
 // ------------------------------------------------------------------ keeping the table in step with the campaign
@@ -1004,7 +1091,7 @@ function freeSpot(n, foot, key) {
 }
 function place(key, o, n) {
   const L = o.userData.landmark;
-  if (L) { spots.set(key, L.uv); o.position.set((L.uv[0] - 0.5) * BW, landmarkY(L) - (L.sink || 0) * o.userData.h, (L.uv[1] - 0.5) * BD); o.userData.terr = n; o.userData.uv = L.uv; return; }   // the rocky footing sinks into the plain
+  if (L) { spots.set(key, L.uv); o.rotation.y = L.rot || 0; o.position.set((L.uv[0] - 0.5) * BW, landmarkY(L) - (L.sink || 0) * o.userData.h * o.scale.x, (L.uv[1] - 0.5) * BD); o.userData.terr = n; o.userData.uv = L.uv; return; }   // the rocky footing sinks into the plain
   let s = spots.get(key);
   if (!s || terrAt(...s) !== n) { s = freeSpot(n, o.userData.foot, key); spots.set(key, s); }
   o.position.copy(toWorld(...s)); o.userData.terr = n; o.userData.uv = s;
@@ -1038,7 +1125,7 @@ async function doSync() {
     if (!o) {
       if (w.kind === 'agent') o = await loadModel(AGENT_MODEL[w.g.type] || 'Scout');
       else if (w.file.startsWith('leaders/')) { try { o = await loadModel(w.file, await leaderNorm()); const inner = o.children[0], pivot = new THREE.Group(); pivot.rotation.y = Math.PI; o.remove(inner); pivot.add(inner); o.add(pivot); } catch (e) { o = await loadModel(w.a.side === 'Good' ? 'Good_Army' : 'Evil_Army'); w.file = w.a.side === 'Good' ? 'Good_Army' : 'Evil_Army'; } ownMaterials(o); }
-      else { o = await loadModel(w.file, w.landmark ? { size: w.landmark.size, maxH: 99 } : BMODEL_NORM(w.file)); if (w.kind === 'army') waveArmy(o, w.a.side); if (w.ghost) { ghost(o); if (!w.landmark) scaffold(o); } if (w.kind === 'building') o.rotation.y = w.landmark ? w.landmark.rot : (w.n * 1.7) % 6.28; if (w.landmark) { o.userData.landmark = w.landmark; const L = w.landmark; o.traverse((m) => { if (!m.isMesh) return; if (!m.geometry.attributes.normal) m.geometry.computeVertexNormals(); m.material = new THREE.MeshStandardMaterial({ vertexColors: true, color: L.tint || '#ffffff', emissive: L.glow || '#000000', roughness: L.gloss ? 0.28 : 0.8, metalness: L.gloss ? 0.25 : 0 });
+      else { o = await loadModel(w.file, w.landmark ? { size: w.landmark.size, maxH: 99 } : BMODEL_NORM(w.file)); if (w.kind === 'army') waveArmy(o, w.a.side); if (w.ghost) { ghost(o); if (!w.landmark) scaffold(o); } if (w.kind === 'building') o.rotation.y = w.landmark ? w.landmark.rot : (w.n * 1.7) % 6.28; if (w.landmark) { o.userData.landmark = w.landmark; o.userData.lmBase = w.landmark.size; const L = w.landmark; o.traverse((m) => { if (!m.isMesh) return; if (!m.geometry.attributes.normal) m.geometry.computeVertexNormals(); m.material = new THREE.MeshStandardMaterial({ vertexColors: true, color: L.tint || '#ffffff', emissive: L.glow || '#000000', roughness: L.gloss ? 0.28 : 0.8, metalness: L.gloss ? 0.25 : 0 });
         if (L.lit) { m.material.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n#ifdef USE_COLOR_ALPHA\n totalEmissiveRadiance += vColor.rgb * vColor.a * 1.1;\n#endif'); }; m.material.customProgramCacheKey = () => 'landmark-lit'; } }); } }
       if (w.kind !== 'building') addRing(o, w.kind === 'army' ? w.a.side : w.g.side);
       o.userData.key = k; scene.add(o); things.set(k, o);
@@ -1483,7 +1570,7 @@ function select(s) {
 }
 function markActing() { $('asGood').classList.toggle('on', acting === 'Good'); $('asEvil').classList.toggle('on', acting === 'Evil');
   for (const sd of ['Good', 'Evil']) $('as' + sd).classList.toggle('locked', NET.on && sd !== NET.seat); }
-const seatLocked = (sd) => { if (NET.on && sd !== NET.seat) { toast(`You play ${NET.seat} in the online campaign.`, 'err'); return true; } return false; };
+const seatLocked = (sd) => { if (NET.on && sd !== NET.seat) { toast(`You play ${NET.seat} in the online campaign. ${NET.role === 'host' ? 'To swap, use Settings → Online → Swap sides.' : 'The host can swap sides in their Online settings.'}`, 'err'); return true; } return false; };
 $('asGood').onclick = () => { if (seatLocked('Good')) return; acting = 'Good'; markActing(); renderUI(); syncScene(); renderSettings(); showPopups(); };
 $('asEvil').onclick = () => { if (seatLocked('Evil')) return; acting = 'Evil'; markActing(); renderUI(); syncScene(); renderSettings(); showPopups(); };
 $('bUndo').onclick = () => act('undo');
@@ -2779,6 +2866,7 @@ function renderSettings() {
     h += `<div class="setrow"><span>Sweep across the board when a turn begins<small>On this computer only</small></span><button class="${cineOn() ? 'on' : ''}" data-cine>${cineOn() ? 'On' : 'Off'}</button></div>`;
     h += `<div class="setrow"><span>How fast pieces travel the roads</span><span class="seg2">${['Slow', 'Normal', 'Fast'].map(k => `<button class="${(st.driveSpeed || 'Normal') === k ? 'on' : ''}" data-sa="drivespeed~${k}">${k}</button>`).join('')}</span></div>`;
     h += `<div class="setrow"><span>Graphics<small>On this computer only. Lighter runs faster on older machines.</small></span><span class="seg2">${Object.keys(QUALITY).map(k => `<button class="${quality === k ? 'on' : ''}" data-q="${k}">${k}</button>`).join('')}</span></div>`;
+    if (Object.keys(LANDMARKS).length) h += `<div class="setrow"><span>Landmarks<small>Move, turn, size and set the ground under this map's landmarks · saved in this browser</small></span><button data-lmopen>Adjust</button></div>`;
     h += `<div class="setrow"><span>Credits<small>Minas Tirith: a scan of the city by PapaH (from a Sketchfab scan), CC BY-NC. Barad-dûr, Minas Morgul, Helm's Deep and the Golden Hall: models by Zajic73, used with permission. Orthanc: by 3DMN, CC BY-NC. All coloured for the board. Ships: Tabletop Simulator models.</small></span></div>`;
     h += `<div class="setrow"><span>Who throws the dice<small>The War Council throws them for you, or each player throws their own in the tray</small></span><span class="seg2" style="flex-direction:column;align-items:flex-end">${['Good', 'Evil'].map(sd => `<span class="seg2"><b style="font-weight:600;margin-right:6px">${sd}</b>${[['auto', 'War Council'], ['player', 'Player']].map(([k, l]) => `<button class="${((st.diceBy || {})[sd] || 'auto') === k ? 'on' : ''}" data-sa="diceby~${sd}~${k}">${l}</button>`).join('')}</span>`).join('')}</span></div>`;
     h += `<div class="setrow"><span>Theatre<small>${esc(theatreInfo())}</small></span><span class="seg2">${['Eriador', 'Rohan', 'Gondor'].map(t => `<button class="${(st.theatre || 'Eriador') === t ? 'on' : ''}" data-sa="theatre~${t}">${t}</button>`).join('')}</span></div>`;
@@ -2840,6 +2928,7 @@ function renderSettings() {
   const nth = $('nTheatre');
   if (nth) nth.onchange = () => { const th = nth.value, m = (S.theatreMaps || {})[(th === 'Rohan' || th === 'Gondor') ? th : 'Eriador'] || {}; $('nCapG').innerHTML = capOpts(th, m.capGood); $('nCapE').innerHTML = capOpts(th, m.capEvil); };
   const oc = $('openChron'); if (oc) oc.onclick = () => { chronicleOn = true; lsSet('eriador.chronicleOn', '1'); writeChronicle(); };
+  el.querySelectorAll('[data-lmopen]').forEach(b => b.onclick = () => { $('settings').hidden = true; openLandmarks(); });
   el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => {
     quality = b.dataset.q; try { localStorage.setItem('eriador.quality', quality); } catch (e) {}
     renderer.setPixelRatio(Math.min(devicePixelRatio, QUALITY[quality].pr)); renderer.setSize(innerWidth, innerHeight);
@@ -4361,7 +4450,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=6b54e90cd7').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=ac85521300').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4569,7 +4658,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=6b54e90cd7').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=ac85521300').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4985,10 +5074,11 @@ function onData(msg) {
   }
   // guest
   if (msg.t === 'hello') {
+    const swapped = NET.seat && NET.seat !== msg.side; NET.swapping = false;
     NET.seat = msg.side; NET.v = +msg.v; NET.lastBy = msg.lastBy || null; NET.hostSide = OTHER_OF[msg.side];
     acting = NET.seat; markActing(); lsSet('eriador.net', JSON.stringify({ role: 'guest', code: NET.code }));
     netApply(msg.s, null, true);
-    toast(`Connected. You play ${NET.seat}.`, 'roll');
+    toast(swapped ? `Sides swapped. You now play ${NET.seat}.` : `Connected. You play ${NET.seat}.`, 'roll'); if (swapped) { sel = null; renderUI(); renderSettings(); showPopups(); }
   } else if (msg.t === 'ack') {
     NET.inflight = false; NET.v = +msg.v; NET.lastBy = 'guest'; guestFlush(); netUI();
   } else if (msg.t === 'state') {
@@ -4998,6 +5088,7 @@ function onData(msg) {
     if (+msg.v < NET.v && !refused) return;
     NET.v = +msg.v; NET.lastBy = msg.by;
     netApply(msg.s, msg.fx, false);
+  } else if (msg.t === 'swap') { NET.swapping = true; toast(`The host is swapping sides. Reconnecting…`, 'roll');
   } else if (msg.t === 'full') { NET.inflight = false; NET.out = null; toast(msg.why || 'That game already has two players.', 'err'); netLeave(true); }
 }
 
@@ -5051,8 +5142,8 @@ async function netJoin(code, retry) {
       conn.on('close', () => {
         if (NET.conn !== conn || NET.role !== 'guest') return;
         NET.conn = null; NET.inflight = false; NET.status = 'connecting'; netUI(); renderSettings();
-        toast(`Lost the ${NET.hostSide || 'host'} player. Trying to reconnect…`, 'err');
-        setTimeout(() => { if (NET.role === 'guest' && NET.peer === peer && !isOpen()) netJoin(code, true); }, 4000);
+        if (!NET.swapping) toast(`Lost the ${NET.hostSide || 'host'} player. Trying to reconnect…`, 'err');
+        setTimeout(() => { if (NET.role === 'guest' && NET.peer === peer && !isOpen()) netJoin(code, true); }, NET.swapping ? 1500 : 4000);
       });
     };
     peer.on('open', connect);
@@ -5062,11 +5153,18 @@ async function netJoin(code, retry) {
       if (e.type === 'peer-unavailable') {
         NET.status = 'nohost'; NET.conn = null; netUI(); renderSettings();
         NET.retries = (NET.retries || 0) + 1;
-        if (NET.retries === 1) toast('No game is running with that code yet. Waiting for the host to open the War Council…', 'err');
-        setTimeout(() => { if (NET.role === 'guest' && NET.peer === peer && !isOpen()) netJoin(code, true); }, 5000);
+        if (NET.retries === 1 && !NET.swapping) toast('No game is running with that code yet. Waiting for the host to open the War Council…', 'err');
+        setTimeout(() => { if (NET.role === 'guest' && NET.peer === peer && !isOpen()) netJoin(code, true); }, NET.swapping ? 2000 : 5000);
       } else if (e.type === 'network' || e.type === 'server-error' || e.type === 'socket-error') { NET.status = 'offline'; netUI(); }
     });
   } catch (e) { toast(e.message || String(e), 'err'); netLeave(true); }
+}
+// the host takes the other side: host again on the same code; the guest reconnects and is told its new side
+function netSwap() {
+  if (NET.role !== 'host') return;
+  const side = OTHER_OF[NET.seat], code = NET.code;
+  try { if (NET.conn) NET.conn.send({ t: 'swap' }); } catch (e) {}
+  setTimeout(() => { netLeave(true); netHost(side, code); sel = null; renderUI(); syncScene(); showPopups(); toast(`You now play ${side}.`, 'roll'); }, 250);
 }
 function netClosePeer() { const p = NET.peer; NET.peer = null; NET.conn = null; if (p) try { p.destroy(); } catch (e) {} }
 // leave: the host keeps the campaign; a guest goes back to the campaign kept in its own browser
@@ -5109,10 +5207,12 @@ function onlineTab() {
     h += `<p class="hint">You host and play <b>${NET.seat}</b>. ${NET.status === 'connected' ? `The ${otherSide()} player is connected.` : `Send this link to the ${otherSide()} player:`}</p>
       <div class="row"><input id="netLink" readonly value="${esc(link)}" style="flex:1;min-width:0"><button class="gold" data-netcopy>Copy link</button></div>
       <p class="hint">Game code <b>${esc(NET.code)}</b>. It stays the same each time you host, so the same link works next session. Keep the War Council open while you play.</p>
+      <div class="row"><button class="gold" data-netswap>Swap sides · I play ${otherSide()}</button></div>
+      <p class="hint">Swapping keeps the same link: the other player reconnects by themselves and plays ${NET.seat}.</p>
       <div class="row"><button data-netleave>Close the game</button><button data-netnew title="Anyone with the old link can no longer join">New game code</button></div>`;
   } else {
     h += `<p class="hint">${NET.seat ? `You play <b>${NET.seat}</b> in game ${esc(NET.code)}.` : `Joining game ${esc(NET.code)}…`} ${NET.status === 'nohost' ? 'The host isn\'t online yet: this connects as soon as they open their War Council.' : ''}</p>
-      <div class="row"><button data-netleave>Leave the game</button></div><p class="hint">Leaving takes you back to the campaign kept in this browser.</p>`;
+      <div class="row"><button data-netleave>Leave the game</button></div><p class="hint">To swap sides, the host presses Swap sides in their Online settings. Leaving takes you back to the campaign kept in this browser.</p>`;
   }
   h += `<p class="hint">Hidden information stays hidden on screen, but both browsers hold the whole campaign, the same as a shared TTS save. If the two computers can't reach each other (some work or school networks block it), try another network.</p>`;
   return h;
@@ -5121,6 +5221,7 @@ function wireOnline(el) {
   el.querySelectorAll('[data-nethost]').forEach(b => b.onclick = () => netHost(b.dataset.nethost));
   el.querySelectorAll('[data-netjoin]').forEach(b => b.onclick = () => netJoin(($('netCode') || {}).value));
   el.querySelectorAll('[data-netleave]').forEach(b => b.onclick = () => netLeave());
+  el.querySelectorAll('[data-netswap]').forEach(b => b.onclick = () => netSwap());
   el.querySelectorAll('[data-netnew]').forEach(b => b.onclick = () => { const side = NET.seat; lsSet('eriador.hostcode', null); netLeave(true); netHost(side, newCode()); });
   el.querySelectorAll('[data-netcopy]').forEach(b => b.onclick = async () => {
     const i = $('netLink'); try { await navigator.clipboard.writeText(i.value); toast('Link copied.', 'roll'); } catch (e) { i.select(); try { document.execCommand('copy'); toast('Link copied.', 'roll'); } catch (e2) { toast('Select the link and copy it.', 'err'); } }
