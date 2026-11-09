@@ -476,7 +476,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=d601cb886d').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=a6eccd7fe4').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -959,6 +959,16 @@ const BMODEL = { hospital: 'Hospital', mustering: 'Mustering_Grounds', tavern: '
 // preload everything once
 await Promise.all([...Object.values(BMODEL), 'Good_Army', 'Evil_Army', 'Scout', 'Assassin', 'Saboteur', 'Surgeon', 'Supply_Wagon'].map(async f => { await loadModel(f, BMODEL_NORM(f)); tick(); }));
 function BMODEL_NORM(f) { return Object.values(BMODEL).includes(f) ? { size: 2.6, maxH: 3.0 } : null; }
+// landmarks: a territory's City shown as the real thing (Minas Tirith, from a scan of the city, coloured after the films' white stone)
+const LANDMARKS = MAP_KEY === 'Gondor' ? { 'Minas Tirith': { key: 'city', hides: ['fort'], file: 'MinasTirith', uv: [0.4768, 0.301], size: 3.8, rot: Math.PI / 2 } } : {};
+function landmarkFor(n, key) { const L = LANDMARKS[T[n] && T[n].name]; return L && L.key === key ? L : null; }
+function landmarkHides(n, key, t) { const L = LANDMARKS[T[n] && T[n].name]; return !!(L && (L.hides || []).includes(key) && t.b && t.b[L.key]); }   // its own walls stand for the fortress
+function landmarkPeak(o) {   // the highest point of a landmark, in the world
+  o.updateMatrixWorld(true); const best = new THREE.Vector3(0, -1e9, 0), v = new THREE.Vector3();
+  o.traverse((m) => { if (!m.isMesh) return; const pa = m.geometry.attributes.position; for (let i = 0; i < pa.count; i += 3) { v.fromBufferAttribute(pa, i).applyMatrix4(m.matrixWorld); if (v.y > best.y) best.copy(v); } });
+  return best;
+}
+function landmarkY(L) { let lo = 1e9; for (let i = 0; i < 25; i++) { const a = i * 2.4, r = (i / 25) * L.size * 0.45; lo = Math.min(lo, hAt(L.uv[0] + Math.cos(a) * r / BW, L.uv[1] + Math.sin(a) * r / BD)); } return lo - 0.05; }
 
 // ------------------------------------------------------------------ keeping the table in step with the campaign
 const things = new Map();     // key -> object on the table
@@ -978,6 +988,8 @@ function freeSpot(n, foot, key) {
   return [hu, hv];
 }
 function place(key, o, n) {
+  const L = o.userData.landmark;
+  if (L) { spots.set(key, L.uv); o.position.set((L.uv[0] - 0.5) * BW, landmarkY(L), (L.uv[1] - 0.5) * BD); o.userData.terr = n; o.userData.uv = L.uv; return; }
   let s = spots.get(key);
   if (!s || terrAt(...s) !== n) { s = freeSpot(n, o.userData.foot, key); spots.set(key, s); }
   o.position.copy(toWorld(...s)); o.userData.terr = n; o.userData.uv = s;
@@ -990,8 +1002,8 @@ async function doSync() {
   const want = new Map();
   S.terr.forEach((t, i) => {
     const n = i + 1;
-    for (const [k, has] of Object.entries(t.b || {})) if (has && BMODEL[k]) want.set(`b:${n}:${k}`, { kind: 'building', n, file: BMODEL[k], key: k });
-    for (const q of t.q || []) if (BMODEL[q.key]) want.set(`q:${n}:${q.key}`, { kind: 'building', n, file: BMODEL[q.key], key: q.key, ghost: true, q });
+    for (const [k, has] of Object.entries(t.b || {})) if (has && BMODEL[k] && !landmarkHides(n, k, t)) { const L = landmarkFor(n, k); want.set(`b:${n}:${k}`, { kind: 'building', n, file: L ? L.file : BMODEL[k], key: k, landmark: L }); }
+    for (const q of t.q || []) if (BMODEL[q.key]) { const L = landmarkFor(n, q.key); want.set(`q:${n}:${q.key}`, { kind: 'building', n, file: L ? L.file : BMODEL[q.key], key: q.key, ghost: true, q, landmark: L }); }
   });
   for (const a of S.armies) want.set(`a:${a.id}`, { kind: 'army', n: a.loc, file: armyFile(a), a });
   for (const g of S.agents || []) if (!g.army && g.loc) want.set(`g:${g.id}`, { kind: 'agent', n: g.loc, g });
@@ -1010,7 +1022,7 @@ async function doSync() {
     if (!o) {
       if (w.kind === 'agent') o = await loadModel(AGENT_MODEL[w.g.type] || 'Scout');
       else if (w.file.startsWith('leaders/')) { try { o = await loadModel(w.file, await leaderNorm()); const inner = o.children[0], pivot = new THREE.Group(); pivot.rotation.y = Math.PI; o.remove(inner); pivot.add(inner); o.add(pivot); } catch (e) { o = await loadModel(w.a.side === 'Good' ? 'Good_Army' : 'Evil_Army'); w.file = w.a.side === 'Good' ? 'Good_Army' : 'Evil_Army'; } ownMaterials(o); }
-      else { o = await loadModel(w.file, BMODEL_NORM(w.file)); if (w.kind === 'army') waveArmy(o, w.a.side); if (w.ghost) { ghost(o); scaffold(o); } if (w.kind === 'building') o.rotation.y = (w.n * 1.7) % 6.28; }
+      else { o = await loadModel(w.file, w.landmark ? { size: w.landmark.size, maxH: 99 } : BMODEL_NORM(w.file)); if (w.kind === 'army') waveArmy(o, w.a.side); if (w.ghost) { ghost(o); if (!w.landmark) scaffold(o); } if (w.kind === 'building') o.rotation.y = w.landmark ? w.landmark.rot : (w.n * 1.7) % 6.28; if (w.landmark) { o.userData.landmark = w.landmark; o.traverse((m) => { if (m.isMesh) m.material = new THREE.MeshStandardMaterial({ vertexColors: true, color: '#f2f5ff', emissive: '#2e2f36', roughness: 0.8, metalness: 0 }); }); } }
       if (w.kind !== 'building') addRing(o, w.kind === 'army' ? w.a.side : w.g.side);
       o.userData.key = k; scene.add(o); things.set(k, o);
       // a finished building or a newly raised army rises out of the table
@@ -2749,6 +2761,7 @@ function renderSettings() {
     h += `<div class="setrow"><span>Sweep across the board when a turn begins<small>On this computer only</small></span><button class="${cineOn() ? 'on' : ''}" data-cine>${cineOn() ? 'On' : 'Off'}</button></div>`;
     h += `<div class="setrow"><span>How fast pieces travel the roads</span><span class="seg2">${['Slow', 'Normal', 'Fast'].map(k => `<button class="${(st.driveSpeed || 'Normal') === k ? 'on' : ''}" data-sa="drivespeed~${k}">${k}</button>`).join('')}</span></div>`;
     h += `<div class="setrow"><span>Graphics<small>On this computer only. Lighter runs faster on older machines.</small></span><span class="seg2">${Object.keys(QUALITY).map(k => `<button class="${quality === k ? 'on' : ''}" data-q="${k}">${k}</button>`).join('')}</span></div>`;
+    h += `<div class="setrow"><span>Credits<small>Minas Tirith: a scan of the city by PapaH (from a Sketchfab scan), CC BY-NC, coloured for the board. Ships: Tabletop Simulator models.</small></span></div>`;
     h += `<div class="setrow"><span>Who throws the dice<small>The War Council throws them for you, or each player throws their own in the tray</small></span><span class="seg2" style="flex-direction:column;align-items:flex-end">${['Good', 'Evil'].map(sd => `<span class="seg2"><b style="font-weight:600;margin-right:6px">${sd}</b>${[['auto', 'War Council'], ['player', 'Player']].map(([k, l]) => `<button class="${((st.diceBy || {})[sd] || 'auto') === k ? 'on' : ''}" data-sa="diceby~${sd}~${k}">${l}</button>`).join('')}</span>`).join('')}</span></div>`;
     h += `<div class="setrow"><span>Theatre<small>${esc(theatreInfo())}</small></span><span class="seg2">${['Eriador', 'Rohan', 'Gondor'].map(t => `<button class="${(st.theatre || 'Eriador') === t ? 'on' : ''}" data-sa="theatre~${t}">${t}</button>`).join('')}</span></div>`;
     h += sw(st.hoverInfo !== false, 'hovertog', 'Map hover info', 'What is in a territory when the pointer is over it');
@@ -3383,7 +3396,9 @@ function syncFlags() {
     const g = new THREE.Group(), h = w.cap ? 4.2 : 3.2; g.add(makePole(h)); cloth.position.set(0.05, h - (w.cap ? 0.5 : 0.38), 0); g.add(cloth);
     const b = things.get(`b:${n}:fort`) || things.get(`b:${n}:city`);
     const [u, v] = T[n].label; const p = b ? b.position.clone().add(new THREE.Vector3(1.4, 0, 1.2)) : toWorld(u - 2 / BW, v + 1.5 / BD);
-    p.y = hAt(...toUV(p)); g.position.copy(p); g.rotation.y = 0.6; scene.add(g);
+    p.y = hAt(...toUV(p));
+    if (b && b.userData.landmark) { p.copy(landmarkPeak(b)); g.scale.setScalar(0.45); }   // the banner flies from the top of the tower
+    g.position.copy(p); g.rotation.y = 0.6; scene.add(g);
     flags.set(n, { n, g, cloth, owner: w.owner });
   }
 }
@@ -4217,7 +4232,7 @@ async function fortTexture() {
   return wallTex;
 }
 async function syncWalls() {
-  const list = S.terr.map((t, i) => (t.b && t.b.fort) ? i + 1 : 0).filter(Boolean), key = list.join(',');
+  const list = S.terr.map((t, i) => (t.b && t.b.fort && !landmarkHides(i + 1, 'fort', t)) ? i + 1 : 0).filter(Boolean), key = list.join(',');
   if (key === wallKey) return; wallKey = key;
   if (wallGroup) { scene.remove(wallGroup); wallGroup.traverse(m => { if (m.geometry) m.geometry.dispose(); }); }
   wallGroup = new THREE.Group(); scene.add(wallGroup);
@@ -4328,7 +4343,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=d601cb886d').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=a6eccd7fe4').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4536,7 +4551,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=d601cb886d').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=a6eccd7fe4').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
