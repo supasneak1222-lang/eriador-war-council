@@ -81,6 +81,8 @@ function appState()
   out.battleAt = battleTerritories()
   out.undo = (#(UNDO or {}) > 0) and UNDO[#UNDO].label or nil
   out.stageName = S.started and STAGES[S.stage] or nil
+  out.relief = {}
+  for i = 1, #S.terr do if reliefBattle(i) then out.relief[#out.relief + 1] = i end end
   out.income, out.garrison = {}, {}
   for i = 1, #S.terr do out.income[i] = income(i); out.garrison[i] = garrisonSize(i) end
   -- what each side calls every army (the enemy may know it only as "Evil Army 3")
@@ -159,6 +161,11 @@ function appReach(kind, id)
     local budget = armyMove(a) - (a.slow or 0) - sailCost(a)
     local normal = moveRangeFor(a, true, budget)
     local march = a.canMarch and moveRangeFor(a, true, budget + marchBonus(a)) or {}
+    if besieging(a) and not S.settings.override then   -- lifting the siege: 1 territory at most
+      local adj = {}
+      for _, m in ipairs(moveRangeFor(a, true, 1)) do if isAdjacent(a.loc, tonumber(type(m) == "table" and (m.n or m[1]) or m)) then adj[#adj + 1] = m end end
+      return JSON.encode({ normal = adj, march = {}, sail = {}, carried = a.carried or 0, lifting = NAMES[a.loc] })
+    end
     local sail = {}
     if STAGES[S.stage] == "Logistics" and a.sailT ~= S.turn then
       for _, s_ in ipairs(sailOptions(a)) do if not madnessBlocks(a, s_.n) and not fangornBlocked(a, s_.n) then sail[#sail + 1] = s_ end end
@@ -199,7 +206,7 @@ function appBattle(n, swap, viewer)
              others = #armiesIn(n, a.side) - 1, over = (mine and r and r.points and r.points > fieldable(a)) and
                (a.name .. "'s roster is " .. r.points .. " pts, but it can only field " .. fieldable(a) .. " pts right now.") or nil }
   end
-  local siege = S.terr[n].b.fort and S.terr[n].owner ~= "Neutral"
+  local siege = siegeBattle(n)
   local al, dl = {}, {}
   for _, a in ipairs(atkList) do al[#al + 1] = brief(a) end
   for _, a in ipairs(defList) do dl[#dl + 1] = brief(a) end
@@ -287,7 +294,7 @@ function appTerrInfo(n, viewer)
   return JSON.encode({ conquer = conquestNeed(n), shield = sh, shieldName = sh and NAMES[sh] or nil, shields = shields, nearFort = nearFort,
                        borders = ADJ[n] or {}, capital = (n == S.settings.capGood) and "Good" or ((n == S.settings.capEvil) and "Evil" or nil),
                        buildings = b, q = q, full = buildingCount(n) >= MAX_BUILDINGS, fortUp = fortUp,
-                       siege = t.siegeT and { by = OTHER[t.owner], since = t.siegeT, ready = siegeReady(n) } or nil })
+                       siege = t.siegeT and { by = OTHER[t.owner], since = t.siegeT, ready = siegeReady(n), relief = reliefBattle(n) } or nil })
 end
 
 -- Movement an agent has left this turn.
