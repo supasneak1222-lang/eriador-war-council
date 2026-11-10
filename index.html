@@ -484,7 +484,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=3121c58ddf').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=0c6684b6c6').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -2211,6 +2211,8 @@ function armyCard(a) {
     <button data-act="disband~${a.id}" title="Press twice to confirm. Building stage.">Disband (refund ${I.refund} RP)</button>
     <button data-twice="destroy~${a.id}" title="Remove it from the campaign outright (destroyed, no retreat). Press twice.">Destroy</button></div>`;
   if (open.edit) h += `<div class="form" style="margin-top:8px"><div class="row"><input id="aRename" placeholder="New name" value="${esc(a.name)}"><button data-act="arename~${a.id}" data-f="aRename=aRename">Rename</button></div>
+    <div class="row"><label><input type="checkbox" data-act="aflag~${a.id}~cavalry" ${a.cavalry ? 'checked' : ''}> Cavalry only</label><label><input type="checkbox" data-act="aflag~${a.id}~canMarch" ${a.canMarch ? 'checked' : ''}> Heroic March</label></div>
+    ${note('Fixing these is free and can be done in any stage.')}
     <input id="eLeader" placeholder="Leader" value="${esc(a.leader || '')}"><input id="eList" placeholder="List" value="${esc(a.list || '')}"><input id="eUnits" placeholder="Units" value="${esc(a.units || '')}">
     <button data-act="edit~${a.id}" data-f="eLeader=eLeader,eList=eList,eUnits=eUnits">Save details · ${I.editCost} RP</button>
     ${I.rosterLine ? `<small style="color:var(--dim)">Roster: ${esc(I.rosterLine)}</small><div class="rlines">${(I.rosterLines || []).map(l => `<div>${esc(l.replace(/^\* /, '★ '))}</div>`).join('')}</div>` : ''}
@@ -4489,7 +4491,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=3121c58ddf').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=0c6684b6c6').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4703,7 +4705,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=3121c58ddf').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=0c6684b6c6').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4845,6 +4847,68 @@ const SHIP_SPAWNS = { Eriador: [['gondor', 0.06, 0.585], ['gondor', 0.11, 0.55]]
   }
   WSURF.pickTarget = pickTarget;
 })();
+// ------------------------------------------------------------------ the Eye of Sauron: a burning gaze from Barad-dûr onto the territory Evil picked
+const EYE = { key: '', g: null, booted: false };
+function eyeTex() {
+  if (EYE.tex) return EYE.tex;
+  const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+  const halo = x.createRadialGradient(128, 128, 10, 128, 128, 128); halo.addColorStop(0, 'rgba(255,170,60,0.9)'); halo.addColorStop(0.35, 'rgba(255,80,10,0.55)'); halo.addColorStop(1, 'rgba(120,10,0,0)');
+  x.fillStyle = halo; x.fillRect(0, 0, 256, 256);
+  x.save(); x.beginPath(); x.ellipse(128, 128, 92, 46, 0, 0, Math.PI * 2); x.clip();       // the almond of the eye
+  const iris = x.createRadialGradient(128, 128, 4, 128, 128, 92); iris.addColorStop(0, '#fff3b0'); iris.addColorStop(0.3, '#ffb21e'); iris.addColorStop(0.75, '#ff4a06'); iris.addColorStop(1, '#7a0c00');
+  x.fillStyle = iris; x.fillRect(0, 0, 256, 256);
+  x.fillStyle = '#100000'; x.beginPath(); x.ellipse(128, 128, 9, 42, 0, 0, Math.PI * 2); x.fill();   // the slit
+  x.restore();
+  return (EYE.tex = new THREE.CanvasTexture(c));
+}
+function eyeSource() {
+  for (const o of things.values()) { const L = o.userData.landmark; if (L && L.file === 'BaradDur') { const p = landmarkPeak(o); return { p: p.add(new THREE.Vector3(0, 0.9, 0)), lm: true }; } }
+  const cap = S.settings && S.settings.capEvil; const p = cap && T[cap] ? toWorld(...T[cap].hub, 7) : new THREE.Vector3(0, 9, 0); return { p, lm: false };
+}
+function buildEye(n) {
+  const g = new THREE.Group(), src = eyeSource(), tgt = toWorld(...T[n].hub, 0.15);
+  const add = (m) => { m.renderOrder = 6; g.add(m); return m; };
+  const mat = (col, op) => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  // the gaze: a cone of fire from the eye down onto the land
+  const dir = src.p.clone().sub(tgt), len = dir.length();
+  for (const [r, op] of [[2.6, 0.10], [1.4, 0.16], [0.45, 0.3]]) {
+    const cone = add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, r, len, 32, 1, true), mat(r > 2 ? '#ff3a08' : '#ff7a1a', op)));
+    cone.position.copy(tgt).add(src.p).multiplyScalar(0.5); cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+  }
+  // the eye itself
+  const eye = add(new THREE.Sprite(new THREE.SpriteMaterial({ map: eyeTex(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
+  eye.position.copy(src.p); eye.scale.set(3.4, 3.4, 1);
+  // where it looks: a burning ring on the ground and a red light
+  const ring = add(new THREE.Mesh(new THREE.RingGeometry(2.3, 2.75, 64), mat('#ff5a12', 0.55))); ring.rotation.x = -Math.PI / 2; ring.position.copy(tgt);
+  const ring2 = add(new THREE.Mesh(new THREE.RingGeometry(1.2, 1.35, 48), mat('#ffb040', 0.4))); ring2.rotation.x = -Math.PI / 2; ring2.position.copy(tgt).add(new THREE.Vector3(0, 0.02, 0));
+  const glow = add(new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: '#ff4a10', transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending })));
+  glow.position.copy(tgt).add(new THREE.Vector3(0, 0.6, 0)); glow.scale.set(6, 3, 1);
+  const light = new THREE.PointLight('#ff4a12', 30, 9, 1.6); light.position.copy(tgt).add(new THREE.Vector3(0, 2.5, 0)); g.add(light);
+  g.userData = { eye, ring, ring2, glow, light, lm: src.lm, n };
+  scene.add(g); return g;
+}
+function stepEye(dt, now) {
+  const e = S && S.eye && S.eye.t === S.turn && T[S.eye.n] ? S.eye.n : 0;
+  const lmNow = e && EYE.g ? (EYE.g.userData.lm || !eyeSource().lm) : true;   // Barad-dûr's model arrived after the gaze was drawn: draw it again from the tower
+  const key = e ? S.turn + ':' + e : '';
+  if (key !== EYE.key || !lmNow) {
+    if (EYE.g) { scene.remove(EYE.g); EYE.g.traverse((m) => { if (m.geometry) m.geometry.dispose(); if (m.material && m.material !== EYE.tex) m.material.dispose(); }); EYE.g = null; }
+    if (e) {
+      EYE.g = buildEye(e);
+      if (EYE.booted && key !== EYE.key) {   // newly turned: look where the Eye looks
+        const p = toWorld(...T[e].hub); flyTo(p.clone().add(new THREE.Vector3(8, 16, 20)), p, 1400);
+        toast(`The Eye of Sauron turns upon ${T[e].name}.`, 'err');
+      }
+    }
+    EYE.key = key;
+  }
+  EYE.booted = true;
+  if (!EYE.g) return;
+  const u = EYE.g.userData, t = now / 1000, beat = 0.5 + 0.5 * Math.sin(t * 2.2);
+  u.eye.scale.setScalar(3.2 + 0.4 * beat); u.eye.material.opacity = 0.85 + 0.15 * beat;
+  u.ring.rotation.z += dt * 0.25; u.ring2.rotation.z -= dt * 0.6;
+  u.ring.material.opacity = 0.4 + 0.25 * beat; u.glow.material.opacity = 0.35 + 0.25 * beat; u.light.intensity = 22 + 14 * beat;
+}
 function stepWater(dt, now) {
   if (!WSURF) return;
   const t = now / 1000;
@@ -4875,7 +4939,7 @@ renderer.setAnimationLoop((now) => {
     a.obj.position.lerpVectors(a.from, a.to, k); a.obj.position.y += Math.sin(Math.PI * k) * a.hop; if (t >= 1) { a.obj.position.copy(a.to); anims.splice(i, 1); } }
   for (let i = grows.length - 1; i >= 0; i--) { const g = grows[i], t = Math.min(1, (now - g.t0) / g.ms), k = t < 1 ? 1 - Math.pow(1 - t, 3) : 1;
     g.o.scale.setScalar(g.from + (g.to - g.from) * k); if (t >= 1) { grows.splice(i, 1); if (g.done) g.done(); } }
-  stepDrives(dt); stepLasting(dt, now); stepFx(dt); stepWater(dt, now);
+  stepDrives(dt); stepLasting(dt, now); stepFx(dt); stepWater(dt, now); if (!EYE.dead) try { stepEye(dt, now); } catch (e) { console.error(e); EYE.dead = true; }
   if (S) { stepTod(dt); stepBanners(dt, now / 1000); stepAmbient(dt, now); followCam(dt); stepQol(dt, now); stepFlair2(dt, now); stepFlair3(dt, now); }
   if (fly) { const t = Math.min(1, (now - fly.s) / fly.ms), k = ease(t); camera.position.lerpVectors(fly.p0, fly.p1, k); controls.target.lerpVectors(fly.t0, fly.t1, k); if (t >= 1) fly = null; }
   stepDice(now);

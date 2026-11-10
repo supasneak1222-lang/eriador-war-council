@@ -599,6 +599,15 @@ function isWolfPack(list)
   local l = string.gsub(string.lower(list or ""), "[^a-z]", "")
   return string.find(l, "wolfpackofangmar", 1, true) ~= nil
 end
+-- Fix a mistake made when raising: cavalry only / Heroic March. Free, any stage.
+function setArmyFlag(a, key, side)
+  if not a then return "Choose an army." end
+  if key ~= "cavalry" and key ~= "canMarch" then return "Unknown setting." end
+  if side and a.side ~= side and not S.settings.override then return "That isn't your army." end
+  a[key] = not a[key]
+  clog(a.name .. ": " .. (key == "cavalry" and "cavalry only" or "Heroic March") .. " set to " .. (a[key] and "yes" or "no") .. " (correction).", a.side, "armies")
+  return true
+end
 function isCavalry(a) return a and (a.cavalry or isWolfPack(a.list)) and true or false end
 
 function baseArmyMove(a)
@@ -12263,6 +12272,7 @@ function uiRun(player, arg)
     r = armySupplies(ar, (a == "adrop") and "drop" or "pick", amt)
     if r == true then f.aRP = nil end
     say(pk, r, ar and (((a == "adrop") and "Dropped off " or "Picked up ") .. math.abs((ar.carried or 0) - had) .. " RP. " .. ar.name .. " now carries " .. (ar.carried or 0) .. " RP.") or nil)
+  elseif a == "aflag" then r = setArmyFlag(armyById(p1), p2, side); say(pk, r, "Army updated.")
   elseif a == "arename" then
     local ar = armyById(p1)
     r = renameArmy(ar, f.aRename)
