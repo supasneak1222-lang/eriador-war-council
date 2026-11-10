@@ -3419,7 +3419,7 @@ SPECIAL_RULES = {
     Good = {
       { key = "whitecity", name = "Splendor of the White City", auto = true, text = "Good's capital starts with Fortifications and a City, and its City gives +50 RP instead of +25. The capital's Fortifications don't protect West Osgiliath, but while West Osgiliath stands no enemy army or model can pass through the capital, whatever their special rules." },
       { key = "stewards", name = "Stubbornness of Stewards", declare = "Logistics", text = "Denethor and Aragorn can't both lead armies unless Boromir also leads one. Aragorn leading without Denethor: -1 Courage for his army. Denethor leading without Aragorn: once per Logistics stage he may look into his Palantír at any Evil army, revealing it on a 2+. All three leading: Good's capital produces +25 RP a turn." },
-      { key = "beacons", name = "The Beacons Are Lit", text = "Once per campaign, at the start of any stage while Denethor leads an army, Good may light the beacons: Denethor is replaced as leader for good, and at the start of the 3rd turn after, a 1000 point Kingdom of Rohan army appears next to Good's capital. Not allowed while the capital is in enemy hands or while Good holds East or West Osgiliath." },
+      { key = "beacons", name = "The Beacons Are Lit", declare = "Any", text = "Once per campaign, at the start of any stage while Denethor leads an army, Good may light the beacons: Denethor is replaced as leader for good, and at the start of the 3rd turn after, a 1000 point Kingdom of Rohan army appears next to Good's capital. Not allowed while the capital is in enemy hands or while Good holds East or West Osgiliath." },
     },
     Evil = {
       { key = "hordes", name = "The Hordes of Mordor", auto = true, text = "Evil starts the campaign with a free 600 point Legion of Mordor army, with no named Heroes and no Monsters, in its capital. It doesn't count against Evil's Point Cap." },
@@ -3578,6 +3578,7 @@ function sailCost(a) return (a and a.sailT == S.turn) and 1 or 0 end
 -- ---------- Gondor: Osgiliath Fatigue ----------
 local function inOsgiliath(a) local nm = NAMES[a.loc] or ""; return nm == "East Osgiliath" or nm == "West Osgiliath" end
 function theatreTurnStart()
+  pcall(beaconsArrive)
   if not theatreRule("osgiliath") then return end
   for _, a in ipairs(S.armies) do
     if a.status ~= "building" then
@@ -3762,6 +3763,44 @@ local function ledBy(side, word)
   end
   return nil
 end
+-- The Beacons Are Lit: Denethor gives up his command for good; Rohan answers 3 turns later
+local function goodHolds(name) local n = terrByName(name); return n and S.terr[n].owner == "Good" end
+function beaconsBlocked()
+  if S.beacons then return "The beacons have already been lit this campaign." end
+  if not ledBy("Good", "denethor") then return "Denethor must be leading an army." end
+  local cap = S.settings.capGood
+  if cap and S.terr[cap].owner ~= "Good" then return "Good's capital is in enemy hands." end
+  if goodHolds("East Osgiliath") or goodHolds("West Osgiliath") then return "Not while Good holds East or West Osgiliath." end
+  return nil
+end
+function lightBeacons()
+  local a = ledBy("Good", "denethor")
+  S.beacons = { t = S.turn, due = S.turn + 3 }
+  S.noDenethor = true
+  if a then
+    a.leader = ""; a.named = false; if a.figure and string.find(string.lower(a.figure), "denethor", 1, true) then a.figure = nil end
+    clog("The Beacons Are Lit: Denethor gives up his command of " .. a.name .. " for good. Choose it a new leader (Edit / roster).", "Good", "armies")
+  end
+  clog("The beacons of Gondor are lit! Rohan will answer: a 1000 point Kingdom of Rohan army arrives next to Good's capital at the start of turn " .. S.beacons.due .. ".", nil, "armies")
+  return true
+end
+function beaconsArrive()
+  local b = S.beacons
+  if not b or b.done or S.turn < b.due then return end
+  b.done = true
+  local cap = S.settings.capGood
+  local at = nil
+  for _, m in ipairs(ADJ[cap] or {}) do if S.terr[m].owner == "Good" and #armiesIn(m, "Evil") == 0 then at = m; break end end
+  at = at or ((S.terr[cap].owner == "Good") and cap) or nil
+  if not at then clog("The Riders of Rohan came, but found no friendly land beside Good's capital to stand in.", nil, "armies"); return end
+  local a = { id = newId(), side = "Good", name = "Riders of Rohan", size = 1000, leader = "", named = false, list = "Kingdom of Rohan",
+              merc = false, cavalry = false, canMarch = false, allied = false, units = "", loc = at, status = "ready",
+              buildLeft = 0, damage = 0, carried = 0, seenLeader = {}, seenUnits = {}, wounds = {} }
+  table.insert(S.armies, a); numberArmy(a)
+  clog("The Beacons Are Lit: the Riders of Rohan, a 1000 point Kingdom of Rohan army, arrive at " .. tname(at) .. ".", nil, "armies")
+  pieceHook("created", "army", a)
+end
+
 -- Denethor leads and Aragorn doesn't: he may look into the Palantír
 function palantirReady()
   return hasRule("Good", "stewards") and ledBy("Good", "denethor") ~= nil and ledBy("Good", "aragorn") == nil
@@ -3831,10 +3870,13 @@ function canDeclare(side, key)
   local r = hasRule(side, key)
   if not r or not r.declare then return "That isn't one of your special rules." end
   if not S.started then return "Start the campaign first." end
-  if STAGES[S.stage] ~= r.declare and not S.settings.override then return r.name .. " is declared in the " .. r.declare .. " stage." end
+  if r.declare ~= "Any" and STAGES[S.stage] ~= r.declare and not S.settings.override then return r.name .. " is declared in the " .. r.declare .. " stage." end
   local cd = ruleCooldown(side, key)
   if cd > 0 then return r.name .. " is ready again in " .. cd .. " turn" .. ((cd == 1) and "" or "s") .. " (turn " .. (S.turn + cd) .. ")." end
   if key == "palantir" and S.prio then return "Priority has already been rolled this turn." end
+  if key == "beacons" then
+    local why = beaconsBlocked(); if why then return why end
+  end
   if key == "stewards" then
     if not palantirReady() then return "Denethor must lead an army, and Aragorn must not." end
     if S.palGood == S.turn then return "Denethor has already looked into the Palantír this Logistics stage." end
@@ -3853,6 +3895,7 @@ end
 function declareRule(side, key, n, armyId)
   local ok = canDeclare(side, key)
   if ok ~= true then return ok end
+  if key == "beacons" then return lightBeacons() end
   if key == "stewards" then
     local a = armyId and armyById(armyId)
     if not a or a.side ~= "Evil" then return "Pick the Evil army Denethor looks at." end

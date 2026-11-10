@@ -489,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=c2b6617698').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=3c7be30604').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -4511,7 +4511,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=c2b6617698').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=3c7be30604').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4524,7 +4524,8 @@ function armyFile(a) {
   return a.side === 'Good' ? 'Good_Army' : 'Evil_Army';
 }
 let leaderNormP = null;
-function leaderNorm() { return leaderNormP || (leaderNormP = (async () => { const g = await MODEL_CACHE['Good_Army']; return { size: g.foot * 2 * 1.1, maxH: g.h * 1.05 }; })()); }
+// every leader figure stands the same height (only very wide ones are held back by their width)
+function leaderNorm() { return leaderNormP || (leaderNormP = (async () => { const g = await MODEL_CACHE['Good_Army']; return { size: g.h * 0.65 * 1.8, maxH: g.h * 0.65 }; })()); }
 function ownMaterials(o) { o.traverse(m => { if (m.isMesh && !m.userData.ownMat) { m.material = m.material.clone(); m.userData.ownMat = true; } }); }
 function revealFx(o, a) {
   const p = o.position.clone();
@@ -4725,7 +4726,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=c2b6617698').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=3c7be30604').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4889,22 +4890,34 @@ function buildEye(n) {
   const g = new THREE.Group(), src = eyeSource(), tgt = toWorld(...T[n].hub, 0.15);
   const add = (m) => { m.renderOrder = 6; g.add(m); return m; };
   const mat = (col, op) => new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: op, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-  // the gaze: a cone of fire from the eye down onto the land
-  const dir = src.p.clone().sub(tgt), len = dir.length();
-  for (const [r, op] of [[2.6, 0.10], [1.4, 0.16], [0.45, 0.3]]) {
-    const cone = add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, r, len, 32, 1, true), mat(r > 2 ? '#ff3a08' : '#ff7a1a', op)));
+  // the gaze: a soft cone of fire, brightest at its heart, fading at its edges and as it nears the eye, with heat rippling down it
+  const dir = src.p.clone().sub(tgt), len = dir.length(), beams = [];
+  for (const [r, op, col] of [[2.4, 1.1, '#ff3a08'], [0.8, 1.5, '#ffa040']]) {
+    const m = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      uniforms: { uTime: { value: 0 }, uCol: { value: new THREE.Color(col) }, uOp: { value: op } },
+      vertexShader: 'varying vec2 vUv; varying vec3 vN; varying vec3 vV; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+      fragmentShader: 'uniform float uTime; uniform vec3 uCol; uniform float uOp; varying vec2 vUv; varying vec3 vN; varying vec3 vV;' +
+        'void main(){ float rim = pow(abs(dot(normalize(vN), normalize(vV))), 1.6);' +
+        ' float along = smoothstep(1.0, 0.82, vUv.y) * smoothstep(0.0, 0.05, vUv.y) * (0.45 + 0.55 * (1.0 - vUv.y));' +
+        ' float ripple = 0.82 + 0.18 * sin(vUv.y * 38.0 - uTime * 4.0 + sin(vUv.x * 18.85) * 1.5);' +
+        ' float a = uOp * rim * along * ripple; gl_FragColor = vec4(uCol * a, a); }' });
+    const cone = add(new THREE.Mesh(new THREE.CylinderGeometry(0.06, r, len, 48, 1, true), m));
     cone.position.copy(tgt).add(src.p).multiplyScalar(0.5); cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+    beams.push(m);
   }
   // the eye itself
   const eye = add(new THREE.Sprite(new THREE.SpriteMaterial({ map: eyeTex(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
   eye.position.copy(src.p); eye.scale.set(3.4, 3.4, 1);
-  // where it looks: a burning ring on the ground and a red light
-  const ring = add(new THREE.Mesh(new THREE.RingGeometry(2.3, 2.75, 64), mat('#ff5a12', 0.55))); ring.rotation.x = -Math.PI / 2; ring.position.copy(tgt);
-  const ring2 = add(new THREE.Mesh(new THREE.RingGeometry(1.2, 1.35, 48), mat('#ffb040', 0.4))); ring2.rotation.x = -Math.PI / 2; ring2.position.copy(tgt).add(new THREE.Vector3(0, 0.02, 0));
-  const glow = add(new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: '#ff4a10', transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending })));
-  glow.position.copy(tgt).add(new THREE.Vector3(0, 0.6, 0)); glow.scale.set(6, 3, 1);
+  // where it looks: a burning pool of light on the land, a ripple of fire spreading from it, and a red light
+  const pool = document.createElement('canvas'); pool.width = pool.height = 128; { const x = pool.getContext('2d'), gr = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, 'rgba(255,190,90,0.9)'); gr.addColorStop(0.35, 'rgba(255,90,20,0.55)'); gr.addColorStop(0.75, 'rgba(200,30,0,0.18)'); gr.addColorStop(1, 'rgba(120,0,0,0)'); x.fillStyle = gr; x.fillRect(0, 0, 128, 128); }
+  const ring = add(new THREE.Mesh(new THREE.PlaneGeometry(6.4, 6.4), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(pool), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
+  ring.rotation.x = -Math.PI / 2; ring.position.copy(tgt);
+  const ring2 = add(new THREE.Mesh(new THREE.RingGeometry(0.9, 1.0, 64), mat('#ff9a3a', 0.5))); ring2.rotation.x = -Math.PI / 2; ring2.position.copy(tgt).add(new THREE.Vector3(0, 0.03, 0));
+  const glow = add(new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: '#ff4a10', transparent: true, opacity: 0.4, depthWrite: false, blending: THREE.AdditiveBlending })));
+  glow.position.copy(tgt).add(new THREE.Vector3(0, 0.8, 0)); glow.scale.set(5, 2.4, 1);
   const light = new THREE.PointLight('#ff4a12', 30, 9, 1.6); light.position.copy(tgt).add(new THREE.Vector3(0, 2.5, 0)); g.add(light);
-  g.userData = { eye, ring, ring2, glow, light, lm: src.lm, n };
+  g.userData = { eye, ring, ring2, glow, light, beams, lm: src.lm, n };
   scene.add(g); return g;
 }
 function stepEye(dt, now) {
@@ -4926,8 +4939,9 @@ function stepEye(dt, now) {
   if (!EYE.g) return;
   const u = EYE.g.userData, t = now / 1000, beat = 0.5 + 0.5 * Math.sin(t * 2.2);
   u.eye.scale.setScalar(3.2 + 0.4 * beat); u.eye.material.opacity = 0.85 + 0.15 * beat;
-  u.ring.rotation.z += dt * 0.25; u.ring2.rotation.z -= dt * 0.6;
-  u.ring.material.opacity = 0.4 + 0.25 * beat; u.glow.material.opacity = 0.35 + 0.25 * beat; u.light.intensity = 22 + 14 * beat;
+  for (const b of u.beams) b.uniforms.uTime.value = t;
+  u.ring.material.opacity = 0.65 + 0.3 * beat; u.glow.material.opacity = 0.3 + 0.2 * beat; u.light.intensity = 22 + 14 * beat;
+  const w = (t * 0.45) % 1; u.ring2.scale.setScalar(0.8 + w * 2.6); u.ring2.material.opacity = 0.55 * (1 - w);   // a ripple of fire spreading outwards
 }
 function stepWater(dt, now) {
   if (!WSURF) return;
