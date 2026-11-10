@@ -484,7 +484,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=823caf1822').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=5ddcff5436').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -1939,6 +1939,8 @@ const hasRuleApp = (side, key) => !!((S.specials || {})[side] || []).find(r => r
 const hasCorsairs = (side) => hasRuleApp(side, 'corsairs');
 const isUmbar = (a) => a.side === 'Evil' && hasCorsairs('Evil') && (a.umbar != null ? !!a.umbar : /umbar|corsair/i.test(a.list || ''));
 const canSee = (side) => side === acting || S.settings.override || !S.settings.hidden;
+const sizeKnown = (a) => canSee(a.side) || a.status !== 'building';   // an enemy army still being raised keeps its size secret
+const sizeTxt = (a) => sizeKnown(a) ? `${a.size} pts` : '? pts';
 function terrCard(n) {
   const t = S.terr[n - 1], see = canSee(t.owner), I = JSON.parse(luaCall('appTerrInfo', n, acting));
   const built = Object.entries(t.b || {}).filter(([, v]) => v).map(([k]) => k);
@@ -2012,7 +2014,7 @@ function terrCard(n) {
   const here = S.armies.filter(a => a.loc === n), ag = (S.agents || []).filter(g => g.loc === n && !g.army && (canSee(g.side) || true));
   if (here.length || ag.length) {
     h += `<h3>Here</h3>`;
-    for (const a of here) h += `<div class="item" data-sel-army="${a.id}"><span><span class="pill ${a.side}">${a.side}</span>${esc(pubName(a))}</span><span style="color:var(--dim)">${a.size} pts</span></div>`;
+    for (const a of here) h += `<div class="item" data-sel-army="${a.id}"><span><span class="pill ${a.side}">${a.side}</span>${esc(pubName(a))}</span><span style="color:var(--dim)">${sizeTxt(a)}</span></div>`;
     for (const g of ag) h += `<div class="item" data-sel-agent="${g.id}"><span><span class="pill ${g.side}">${g.side}</span>${esc(canSee(g.side) ? (g.name || g.type) : g.type)}</span><span style="color:var(--dim)">${esc(g.type)}</span></div>`;
   }
   h += `<h3><button class="link" data-toggle="hist">${open.hist ? '▾' : '▸'} History</button></h3>` + (open.hist ? historyHtml(n) : '');
@@ -2130,7 +2132,7 @@ function armyCard(a) {
   if (!canSee(a.side)) {
     const k = (a.know && a.know[acting]) || {};
     return `<h2>${esc(pubName(a))}</h2><div class="sub"><span class="pill ${a.side}">${a.side}</span>${a.status === 'building' ? '<span class="pill Neutral">Being raised</span>' : ''}</div>
-      <div class="kv"><span>Where</span><span>${esc(tname(a.loc))}</span><span>Size</span><span>${a.size} pts${k.units && a.cavalry ? ' · cavalry' : ''}</span>
+      <div class="kv"><span>Where</span><span>${esc(tname(a.loc))}</span><span>Size</span><span>${sizeKnown(a) ? a.size + ' pts' : 'unknown'}${k.units && a.cavalry ? ' · cavalry' : ''}</span>
       <span>Leader</span><span>${k.leader ? esc(a.leader || 'no named leader') : 'unknown'}</span>
       ${k.units ? `<span>List</span><span>${esc(a.list || '—')}</span><span>Strength</span><span>${a.damage ? '−' + a.damage + '%' : 'full'}</span>${a.units ? `<span>Units</span><span style="font-size:14px">${esc(a.units)}</span>` : ''}` : ''}</div>
       ${k.units ? cardsBlock(a) : ''}${note(k.units ? 'Your scouts know what this army contains.' : k.leader ? 'Your scouts have seen its leader, but not what it contains.' : 'An enemy army: send a Scout to learn more.')}`;
@@ -2427,7 +2429,7 @@ function renderLedger() {
       S.armies.map(a => { const see = canSee(a.side), k = (a.know && a.know[acting]) || {};
         const st = a.status === 'building' ? `raising, ${a.buildLeft}t` : [a.needsRetreat && 'must retreat', a.moved && 'moved', a.order && (a.side === acting || !a.order.secret || a.order.revealed) && a.order.k, a.replenishing && 'replenishing', a.upLeft && 'upgrading', a.absent && 'leader absent'].filter(Boolean).join(', ') || 'ready';
         return `<tr data-ga="${a.id}"><td>${esc(pubName(a))}${k.leader && !see ? ` <small style="color:var(--dim)">(${esc(a.leader)})</small>` : ''}</td><td><span class="pill ${a.side}">${a.side}</span></td><td>${esc(T[a.loc].name)}</td>
-          <td class="num">${a.size}</td><td>${see || k.units ? (a.damage ? '−' + a.damage + '%' : 'full') : '?'}</td><td class="num">${see ? (a.carried || 0) : '?'}</td><td>${see ? esc(st) : (a.status === 'building' ? 'raising' : '')}</td></tr>`; }).join('') + `</tbody></table>`;
+          <td class="num">${sizeKnown(a) ? a.size : '?'}</td><td>${see || k.units ? (a.damage ? '−' + a.damage + '%' : 'full') : '?'}</td><td class="num">${see ? (a.carried || 0) : '?'}</td><td>${see ? esc(st) : (a.status === 'building' ? 'raising' : '')}</td></tr>`; }).join('') + `</tbody></table>`;
   } else if (ledgerTab === 'Agents') {
     const list = (S.agents || []).filter(g => g.type !== 'Supply Wagon' && (canSee(g.side) || g.loc));
     h += `<table><thead><tr><th>Agent</th><th>Side</th><th>Type</th><th>Where</th><th class="num">Cargo</th><th>Status</th></tr></thead><tbody>` +
@@ -4487,7 +4489,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=823caf1822').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=5ddcff5436').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4701,7 +4703,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=823caf1822').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=5ddcff5436').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
