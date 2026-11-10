@@ -489,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=c0fa700b36').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=27bf0a4734').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -617,7 +617,8 @@ function playEvents(r, before, dropAt) {
       if (from == null) continue;
       const c = e.kind === 'agent' ? cargoBy.get(String(e.id)) : null; if (c) used.add(String(e.id));
       const to = e.path[e.path.length - 1];
-      if (e.sail && e.kind === 'army' && voyage(key, from, to, e.sail)) continue;   // took ship
+      let sailed = false; if (e.sail && e.kind === 'army') try { sailed = voyage(key, from, to, e.sail); } catch (err) { console.error('voyage', err); }
+      if (sailed) continue;   // took ship
       journey(key, [from, ...e.path], c, dropAt && dropAt.key === key ? dropAt.uv : null);
     } else if (e.ev === 'sound') playSound(e.key);
   }
@@ -1410,7 +1411,7 @@ function waterRoute(from, to) {
   };
   const c0 = landing(from), c1 = landing(to); if (c0 < 0 || c1 < 0) return null;
   // cheapest way through the water, where every step near a shore costs more: ships keep to open water and the middle of rivers
-  const cost = new Float32Array(nav.length).fill(Infinity), prev = new Int32Array(nav.length).fill(-1), heap = [[0, c0]]; cost[c0] = 0;
+  const cost = new Float64Array(nav.length).fill(Infinity), prev = new Int32Array(nav.length).fill(-1), heap = [[0, c0]]; cost[c0] = 0;
   const push = (it) => { heap.push(it); let k = heap.length - 1; while (k) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
   const pop = () => { const top = heap[0], end = heap.pop(); if (heap.length) { heap[0] = end; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k;
     if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
@@ -1426,7 +1427,8 @@ function waterRoute(from, to) {
     }
   }
   if (!isFinite(cost[c1])) return null;
-  const cells = []; for (let c = c1; c !== -1; c = prev[c]) cells.push(c); cells.reverse();
+  const cells = []; for (let c = c1, k = 0; c !== -1 && k <= nav.length; c = prev[c], k++) cells.push(c);   // never more steps than there are cells
+  if (cells[cells.length - 1] !== c0) return null; cells.reverse();
   // a few control points along the way, then a smooth curve through them
   let ctrl = cells.filter((c, i) => i % 5 === 0 || i === cells.length - 1).map(cellUV);
   for (let k = 0; k < 2; k++) ctrl = ctrl.map((p, i) => i === 0 || i === ctrl.length - 1 ? p : [(ctrl[i - 1][0] + p[0] * 2 + ctrl[i + 1][0]) / 4, (ctrl[i - 1][1] + p[1] * 2 + ctrl[i + 1][1]) / 4]);
@@ -4612,7 +4614,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=c0fa700b36').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=27bf0a4734').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4827,7 +4829,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=c0fa700b36').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=27bf0a4734').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
