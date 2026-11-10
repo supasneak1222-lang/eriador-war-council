@@ -95,7 +95,7 @@ function appState()
     c.pub = { Good = aname(a, "Good"), Evil = aname(a, "Evil") }
     c.know = {}
     for _, sd in ipairs(SIDES) do
-      local tower = (sd ~= a.side) and towerSees(sd, a.loc) or false
+      local tower = (sd ~= a.side) and a.status ~= "building" and towerSees(sd, a.loc) or false
       c.know[sd] = { leader = (sd == a.side) or (a.seenLeader and a.seenLeader[sd]) or tower or false,
                      units = (sd == a.side) or (a.seenUnits and a.seenUnits[sd]) or tower or false }
     end
@@ -184,7 +184,7 @@ end
 local function sees(viewer, side) return viewer == side or not S.settings.hidden or S.settings.override end
 local function knows(viewer, a)
   if sees(viewer, a.side) then return true, true end
-  local tower = towerSees(viewer, a.loc)
+  local tower = a.status ~= "building" and towerSees(viewer, a.loc)
   return (a.seenLeader and a.seenLeader[viewer] or tower) and true or false, (a.seenUnits and a.seenUnits[viewer] or tower) and true or false
 end
 local function label(viewer, a) return sees(viewer, a.side) and a.name or aname(a, viewer) end

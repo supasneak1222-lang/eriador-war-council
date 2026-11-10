@@ -1476,6 +1476,7 @@ end
 function scoutArmies(g)
   local found = 0
   for _, a in ipairs(armiesIn(g.loc, OTHER[g.side])) do
+    if a.status == "building" then goto continue end   -- an army still being raised can't be scouted
     found = found + 1
     a.seenLeader[g.side] = true
     if a.seenUnits[g.side] then
@@ -3764,6 +3765,7 @@ function stewardsBonus(n)
 end
 function palantirLook(a)
   if not a or a.side ~= "Evil" then return "Pick an Evil army." end
+  if a.status == "building" then return "That army is still being raised: it can't be seen yet." end
   S.palGood = S.turn
   local pub = publicName(a)
   local r = d6("Good", "Denethor's Palantír: " .. pub)
