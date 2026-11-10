@@ -489,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=46181f8c99').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=e020ed925b').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -4511,7 +4511,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=46181f8c99').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=e020ed925b').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4726,7 +4726,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=46181f8c99').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=e020ed925b').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4822,9 +4822,10 @@ const FELL = { list: [] };
 (async function initFellBeasts() {
   if (MAP_KEY !== 'Gondor') return;
   // each circles its own patch of Mordor: centre (u, v), radii (as a share of the board), speed, height and a start angle
-  const ROUTES = [{ c: [0.69, 0.165], r: [0.075, 0.11], w: 0.11, y: 10.5, a: 0 }, { c: [0.6, 0.285], r: [0.05, 0.07], w: -0.14, y: 9, a: 2.2 },
+  const ROUTES = [{ c: [0.68, 0.2], r: [0.07, 0.075], w: 0.11, y: 10.5, a: 0 }, { c: [0.6, 0.285], r: [0.05, 0.07], w: -0.14, y: 9, a: 2.2 },
     { c: [0.77, 0.27], r: [0.06, 0.09], w: 0.09, y: 11.5, a: 4.1 }];
-  let base; try { base = await loadModel('FellBeast', { size: 3.0, maxH: 10 }); } catch (e) { console.warn('Fell Beasts:', e); return; }
+  let base; try { base = await loadModel('FellBeast', { size: 2.7, maxH: 10 }); } catch (e) { console.warn('Fell Beasts:', e); return; }
+  base.traverse((m) => { if (m.isMesh) { m.material = m.material.clone(); m.material.color.setScalar(2.2); m.material.roughness = 0.75; } });   // lift the dark hide so its shape reads in Mordor's gloom
   for (const R of ROUTES) {
     const outer = new THREE.Group(), tilt = new THREE.Group(), body = base.clone(true);
     body.rotation.y = Math.atan2(65, 36);          // the model's head turned to face along its flight
