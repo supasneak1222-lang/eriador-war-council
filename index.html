@@ -489,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=2c99373eae').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=01f6588361').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -1398,18 +1398,30 @@ function waterRoute(from, to) {
     return best;
   };
   const c0 = landing(from), c1 = landing(to); if (c0 < 0 || c1 < 0) return null;
-  const prev = new Int32Array(nav.length).fill(-2); prev[c0] = -1; const q = [c0];
-  for (let h = 0; h < q.length && prev[c1] === -2; h++) { const c = q[h], x = c % NW, y = Math.floor(c / NW);
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) { const xx = x + dx, yy = y + dy, n = yy * NW + xx;
-      if (xx >= 0 && yy >= 0 && xx < NW && yy < NH && prev[n] === -2 && ok(n)) { prev[n] = c; q.push(n); } } }
-  if (prev[c1] === -2) return null;
+  // cheapest way through the water, where every step near a shore costs more: ships keep to open water and the middle of rivers
+  const cost = new Float32Array(nav.length).fill(Infinity), prev = new Int32Array(nav.length).fill(-1), heap = [[0, c0]]; cost[c0] = 0;
+  const push = (it) => { heap.push(it); let k = heap.length - 1; while (k) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+  const pop = () => { const top = heap[0], end = heap.pop(); if (heap.length) { heap[0] = end; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k;
+    if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+  while (heap.length) {
+    const [cc, c] = pop(); if (c === c1) break; if (cc > cost[c]) continue;
+    const x = c % NW, y = Math.floor(c / NW);
+    for (const [dx, dy, len] of [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]]) {
+      const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= NW || yy >= NH) continue;
+      const n = yy * NW + xx; if (!ok(n)) continue;
+      const nc = cc + len * (1 + 9 / (1 + Math.min(nav[n], 14)));     // shallow, close to the shore: dearer
+      if (nc < cost[n]) { cost[n] = nc; prev[n] = c; push([nc, n]); }
+    }
+  }
+  if (!isFinite(cost[c1])) return null;
   const cells = []; for (let c = c1; c !== -1; c = prev[c]) cells.push(c); cells.reverse();
-  // keep to the middle of the channel: walk the cells, nudged towards deeper water, then smooth the line
-  let pts = cells.map((c) => { const [u, v] = cellUV(c); let su = 0, sv = 0, sw = 0, x = c % NW, y = Math.floor(c / NW);
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= NW || yy >= NH) continue; const w = nav[yy * NW + xx]; su += w * (xx + 0.5) / NW; sv += w * (yy + 0.5) / NH; sw += w; }
-    return sw ? [(u + su / sw) / 2, (v + sv / sw) / 2] : [u, v]; });
-  for (let k = 0; k < 3; k++) pts = pts.map((p, i) => i === 0 || i === pts.length - 1 ? p : [(pts[i - 1][0] + p[0] * 2 + pts[i + 1][0]) / 4, (pts[i - 1][1] + p[1] * 2 + pts[i + 1][1]) / 4]);
-  return pts;
+  // a few control points along the way, then a smooth curve through them
+  let ctrl = cells.filter((c, i) => i % 5 === 0 || i === cells.length - 1).map(cellUV);
+  for (let k = 0; k < 2; k++) ctrl = ctrl.map((p, i) => i === 0 || i === ctrl.length - 1 ? p : [(ctrl[i - 1][0] + p[0] * 2 + ctrl[i + 1][0]) / 4, (ctrl[i - 1][1] + p[1] * 2 + ctrl[i + 1][1]) / 4]);
+  if (ctrl.length < 2) return ctrl;
+  const curve = new THREE.CatmullRomCurve3(ctrl.map(([u, v]) => new THREE.Vector3(u * BW, 0, v * BD)), false, 'centripetal');
+  const n = Math.max(8, Math.ceil(curve.getLength() / 0.25));
+  return curve.getSpacedPoints(n).map((p) => [p.x / BW, p.z / BD]);
 }
 function voyage(key, from, to, kind) {
   const o = things.get(key); if (!o || !WSURF || !WSURF.shipModel) return false;
@@ -1438,13 +1450,19 @@ function stepVoyages(dt) {
       if (v.ship) { v.ship.position.copy(W[0]); const a = W[1].clone().sub(W[0]); v.ship.rotation.y = Math.atan2(a.x, a.z); }
       if (v.t >= 1 && v.ship) { v.phase = 1; v.t = 0; v.sc = o.scale.x; o.scale.setScalar(v.sc * 0.75); }   // aboard
     } else if (v.phase === 1) {                // under sail along the waterways, the army on the deck
-      v.d = Math.min(v.dist[v.dist.length - 1], v.d + sp * 1.2 * dt);
-      let j = 1; while (j < v.dist.length - 1 && v.dist[j] < v.d) j++;
-      const k = (v.d - v.dist[j - 1]) / Math.max(1e-6, v.dist[j] - v.dist[j - 1]), p = W[j - 1].clone().lerp(W[j], k);
-      const dx = W[j].x - W[j - 1].x, dz = W[j].z - W[j - 1].z, want = Math.atan2(dx, dz); let dr = want - v.ship.rotation.y; dr = Math.atan2(Math.sin(dr), Math.cos(dr));
-      v.ship.rotation.y += dr * Math.min(1, dt * 3); v.ship.position.copy(p); v.ship.rotation.z = Math.sin(performance.now() / 600) * 0.05;
-      o.position.set(p.x, p.y + 0.5, p.z); o.rotation.y = v.ship.rotation.y; o.rotation.z = v.ship.rotation.z;
-      if (v.d >= v.dist[v.dist.length - 1]) { v.phase = 2; v.t = 0; v.land = o.position.clone(); o.rotation.z = 0; o.scale.setScalar(v.sc); }   // ashore
+      const total = v.dist[v.dist.length - 1], at = (d) => { d = Math.max(0, Math.min(total, d)); let j = 1; while (j < v.dist.length - 1 && v.dist[j] < d) j++;
+        const k = (d - v.dist[j - 1]) / Math.max(1e-6, v.dist[j] - v.dist[j - 1]); return W[j - 1].clone().lerp(W[j], k); };
+      const ease = Math.min(1, 0.25 + v.d / 3, 0.2 + (total - v.d) / 3);                  // gathers way leaving the shore, slows coming in
+      v.d = Math.min(total, v.d + sp * 1.2 * ease * dt);
+      const p = at(v.d), ahead = at(v.d + 1.6), want = Math.atan2(ahead.x - p.x, ahead.z - p.z);   // steer for a point a little ahead
+      let dr = want - v.ship.rotation.y; dr = Math.atan2(Math.sin(dr), Math.cos(dr));
+      const turn = dr * Math.min(1, dt * 1.6); v.ship.rotation.y += turn;
+      v.heel = (v.heel || 0) * 0.92 + (-turn / Math.max(dt, 1e-3)) * 0.04;                // leaning into the turn
+      const tt = performance.now() / 1000;
+      v.ship.position.set(p.x, p.y + Math.sin(tt * 1.4) * 0.03, p.z);
+      v.ship.rotation.z = Math.max(-0.18, Math.min(0.18, v.heel)) + Math.sin(tt * 0.9) * 0.03; v.ship.rotation.x = Math.sin(tt * 1.2) * 0.02;
+      o.position.set(p.x, v.ship.position.y + 0.5, p.z); o.rotation.y = v.ship.rotation.y; o.rotation.z = v.ship.rotation.z;
+      if (v.d >= total) { v.phase = 2; v.t = 0; v.land = o.position.clone(); o.rotation.z = 0; o.scale.setScalar(v.sc); }   // ashore
     } else if (v.phase === 2) {                // ashore, and on to where it is going; the ship slips away
       const len = Math.max(0.01, v.land.distanceTo(v.end)); v.t = Math.min(1, v.t + sp * dt / len); walk(v.land, v.end, v.t);
       if (v.ship) v.ship.traverse((m) => { if (m.isMesh) m.material.opacity = 1 - v.t; });
@@ -4582,7 +4600,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=2c99373eae').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=01f6588361').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4797,7 +4815,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=2c99373eae').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=01f6588361').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
