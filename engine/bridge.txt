@@ -11,8 +11,9 @@ APP_PLAYER = { color = "White", steam_name = "Player", getSelectedObjects = func
 
 -- What happened to the pieces during an action (moves with their road paths, arrivals, removals): the app animates them.
 APP_EV = {}
-piecesOn = function(event, a, b, c)
+piecesOn = function(event, a, b, c, d)
   local e = { ev = event }
+  if type(d) == "table" and d.sail then e.sail = d.sail end   -- a voyage by ship: which ship to show
   if type(a) == "string" then e.kind = a end
   if type(b) == "table" then e.id = b.id end
   if type(a) == "number" then e.n = a; e.key = b end

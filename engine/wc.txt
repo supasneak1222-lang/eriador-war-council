@@ -3567,7 +3567,7 @@ function sailArmy(a, dest)
   if #armiesIn(dest, OTHER[a.side]) > 0 then a.moved = true; clog(a.name .. " landed among an enemy army at " .. tname(dest) .. ".", nil, "armies") end
   clog(a.side .. " army " .. a.name .. (opt.cross and " crossed the Anduin" or " sailed") .. " from " .. tname(from) .. " to " .. tname(dest) .. " for " .. opt.cost .. " RP" ..
        (opt.cross and "; its movement is over for this turn." or " (1 movement used)."), a.side)
-  pieceHook("moved", "army", a, { from, dest })
+  pieceHook("moved", "army", a, { from, dest }, { sail = a.side == "Evil" and "corsair" or "gondor" })
   armyArrivedCaptures(a)
   if S.terr[dest].owner ~= a.side then clog("An army has entered " .. tname(dest) .. ".") end
   return true
@@ -3750,7 +3750,7 @@ function corsairLanding(a, n)
   armyLeft(a, from)
   if #armiesIn(n, OTHER[a.side]) > 0 then a.moved = true; clog(a.name .. " landed among an enemy army at " .. tname(n) .. ".", nil, "armies") end
   clog("The Corsairs of Umbar: " .. a.name .. " set sail from " .. tname(from) .. " to " .. tname(n) .. ".", a.side, "armies")
-  pieceHook("moved", "army", a, { from, n })
+  pieceHook("moved", "army", a, { from, n }, { sail = "corsair" })
   armyArrivedCaptures(a)
   if S.terr[n].owner ~= a.side then clog("An army has entered " .. tname(n) .. ".") end
   return true
