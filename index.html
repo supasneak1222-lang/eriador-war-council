@@ -489,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=2748d9fca3').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=46181f8c99').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -2913,7 +2913,7 @@ function renderSettings() {
     h += `<div class="setrow"><span>How fast pieces travel the roads</span><span class="seg2">${['Slow', 'Normal', 'Fast'].map(k => `<button class="${(st.driveSpeed || 'Normal') === k ? 'on' : ''}" data-sa="drivespeed~${k}">${k}</button>`).join('')}</span></div>`;
     h += `<div class="setrow"><span>Graphics<small>On this computer only. Lighter runs faster on older machines.</small></span><span class="seg2">${Object.keys(QUALITY).map(k => `<button class="${quality === k ? 'on' : ''}" data-q="${k}">${k}</button>`).join('')}</span></div>`;
     if (Object.keys(LANDMARKS).length) h += `<div class="setrow"><span>Landmarks<small>Move, turn, size and set the ground under this map's landmarks · saved in this browser</small></span><button data-lmopen>Adjust</button></div>`;
-    h += `<div class="setrow"><span>Credits<small>Minas Tirith: a scan of the city by PapaH (from a Sketchfab scan), CC BY-NC. Barad-dûr, Minas Morgul, Helm's Deep and the Golden Hall: models by Zajic73, used with permission. Orthanc: by 3DMN, CC BY-NC. All coloured for the board. Ships: Tabletop Simulator models.</small></span></div>`;
+    h += `<div class="setrow"><span>Credits<small>Minas Tirith: a scan of the city by PapaH (from a Sketchfab scan), CC BY-NC. Barad-dûr, Minas Morgul, Helm's Deep and the Golden Hall: models by Zajic73, used with permission. Orthanc: by 3DMN, CC BY-NC. Nazgûl on Fell Beast: by Cadel, used with permission. All coloured for the board. Ships: Tabletop Simulator models.</small></span></div>`;
     h += `<div class="setrow"><span>Who throws the dice<small>The War Council throws them for you, or each player throws their own in the tray</small></span><span class="seg2" style="flex-direction:column;align-items:flex-end">${['Good', 'Evil'].map(sd => `<span class="seg2"><b style="font-weight:600;margin-right:6px">${sd}</b>${[['auto', 'War Council'], ['player', 'Player']].map(([k, l]) => `<button class="${((st.diceBy || {})[sd] || 'auto') === k ? 'on' : ''}" data-sa="diceby~${sd}~${k}">${l}</button>`).join('')}</span>`).join('')}</span></div>`;
     h += `<div class="setrow"><span>Theatre<small>${esc(theatreInfo())}</small></span><span class="seg2">${['Eriador', 'Rohan', 'Gondor'].map(t => `<button class="${(st.theatre || 'Eriador') === t ? 'on' : ''}" data-sa="theatre~${t}">${t}</button>`).join('')}</span></div>`;
     h += sw(st.hoverInfo !== false, 'hovertog', 'Map hover info', 'What is in a territory when the pointer is over it');
@@ -4511,7 +4511,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=2748d9fca3').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=46181f8c99').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4726,7 +4726,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=2748d9fca3').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=46181f8c99').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4817,6 +4817,36 @@ const ease = (t) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 // ------------------------------------------------------------------ life on the water: river mist, and ships that sail about slowly
 const SHIP_SPAWNS = { Eriador: [['gondor', 0.06, 0.585], ['gondor', 0.11, 0.55]],
   Gondor: [['gondor', 0.3, 0.8], ['gondor', 0.38, 0.73], ['corsair', 0.2, 0.86], ['corsair', 0.12, 0.72]], Rohan: [] };
+// ------------------------------------------------------------------ Nazgûl on their Fell Beasts, circling over Mordor (Gondor theatre)
+const FELL = { list: [] };
+(async function initFellBeasts() {
+  if (MAP_KEY !== 'Gondor') return;
+  // each circles its own patch of Mordor: centre (u, v), radii (as a share of the board), speed, height and a start angle
+  const ROUTES = [{ c: [0.69, 0.165], r: [0.075, 0.11], w: 0.11, y: 10.5, a: 0 }, { c: [0.6, 0.285], r: [0.05, 0.07], w: -0.14, y: 9, a: 2.2 },
+    { c: [0.77, 0.27], r: [0.06, 0.09], w: 0.09, y: 11.5, a: 4.1 }];
+  let base; try { base = await loadModel('FellBeast', { size: 3.0, maxH: 10 }); } catch (e) { console.warn('Fell Beasts:', e); return; }
+  for (const R of ROUTES) {
+    const outer = new THREE.Group(), tilt = new THREE.Group(), body = base.clone(true);
+    body.rotation.y = Math.atan2(65, 36);          // the model's head turned to face along its flight
+    const lean = new THREE.Group(); lean.rotation.x = -0.28; lean.add(body);   // lift the drooping head level
+    tilt.add(lean); outer.add(tilt); scene.add(outer);
+    FELL.list.push({ R, outer, tilt });
+  }
+})();
+function stepFellBeasts(dt, now) {
+  if (!FELL.list.length) return;
+  const t = (window.__wt ?? now / 1000);
+  for (const f of FELL.list) {
+    const { R } = f, th = R.a + t * R.w, k = Math.sign(R.w);
+    const wob = 1 + 0.12 * Math.sin(th * 0.5 + R.a);             // the circle swells and shrinks a little, so the path never quite repeats
+    const u = R.c[0] + Math.cos(th) * R.r[0] * wob, v = R.c[1] + Math.sin(th) * R.r[1] * wob;
+    const du = -Math.sin(th) * R.r[0] * k, dv = Math.cos(th) * R.r[1] * k;   // the way it is heading
+    const p = toWorld(u, v); f.outer.position.set(p.x, R.y + 0.6 * Math.sin(t * 0.7 + R.a), p.z);
+    f.outer.rotation.y = Math.atan2(du * BW, dv * BD);
+    f.tilt.rotation.z = 0.32 * k + 0.05 * Math.sin(t * 1.3 + R.a);   // banking into the turn
+    f.tilt.rotation.x = 0.06 * Math.sin(t * 0.9 + R.a);
+  }
+}
 (function initWaterLife() {
   if (!WSURF) return;
   const lite = quality === 'Light';
@@ -5017,7 +5047,7 @@ renderer.setAnimationLoop((now) => {
     a.obj.position.lerpVectors(a.from, a.to, k); a.obj.position.y += Math.sin(Math.PI * k) * a.hop; if (t >= 1) { a.obj.position.copy(a.to); anims.splice(i, 1); } }
   for (let i = grows.length - 1; i >= 0; i--) { const g = grows[i], t = Math.min(1, (now - g.t0) / g.ms), k = t < 1 ? 1 - Math.pow(1 - t, 3) : 1;
     g.o.scale.setScalar(g.from + (g.to - g.from) * k); if (t >= 1) { grows.splice(i, 1); if (g.done) g.done(); } }
-  stepDrives(dt); stepLasting(dt, now); stepFx(dt); stepWater(dt, now); if (!EYE.dead) try { stepEye(dt, now); } catch (e) { console.error(e); EYE.dead = true; }
+  stepDrives(dt); stepLasting(dt, now); stepFx(dt); stepWater(dt, now); stepFellBeasts(dt, now); if (!EYE.dead) try { stepEye(dt, now); } catch (e) { console.error(e); EYE.dead = true; }
   if (S) { stepTod(dt); stepBanners(dt, now / 1000); stepAmbient(dt, now); followCam(dt); stepQol(dt, now); stepFlair2(dt, now); stepFlair3(dt, now); }
   if (fly) { const t = Math.min(1, (now - fly.s) / fly.ms), k = ease(t); camera.position.lerpVectors(fly.p0, fly.p1, k); controls.target.lerpVectors(fly.t0, fly.t1, k); if (t >= 1) fly = null; }
   stepDice(now);
