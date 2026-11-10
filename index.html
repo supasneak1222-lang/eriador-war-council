@@ -489,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=3c7be30604').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=2748d9fca3').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -4511,7 +4511,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=3c7be30604').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=2748d9fca3').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4726,7 +4726,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=3c7be30604').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=2748d9fca3').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4882,8 +4882,46 @@ function eyeTex() {
   x.restore();
   return (EYE.tex = new THREE.CanvasTexture(c));
 }
+const EYE_FRAG = `
+uniform float uTime; varying vec2 vUv;
+float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h(i), h(i + vec2(1, 0)), f.x), mix(h(i + vec2(0, 1)), h(i + vec2(1, 1)), f.x), f.y); }
+float fbm(vec2 p){ float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += a * n(p); p *= 2.03; a *= 0.5; } return v; }
+vec3 fire(float t){ t = clamp(t, 0.0, 1.0);
+  return mix(mix(vec3(0.25, 0.0, 0.0), vec3(0.95, 0.22, 0.02), smoothstep(0.0, 0.45, t)), vec3(1.0, 0.85, 0.45), smoothstep(0.55, 1.0, t)); }
+void main(){
+  vec2 p = vUv; float T = uTime;
+  // the almond of the eye: wide and narrow, its lids burning
+  float lid = 0.36 * pow(max(0.0, 1.0 - p.x * p.x / 0.62), 0.75);
+  float d = abs(p.y) - lid;                       // < 0 inside the eye
+  float r = length(p * vec2(1.0, 1.6)), ang = atan(p.y, p.x);
+  // flames streaming outwards from the lids
+  float fl = fbm(vec2(ang * 3.0, r * 3.2 - T * 1.6)) + 0.5 * fbm(vec2(ang * 7.0 + 3.0, r * 6.0 - T * 2.4));
+  float flame = smoothstep(0.55, 0.0, d - (fl - 0.55) * 0.42) * smoothstep(1.0, 0.45, r);
+  vec3 col = fire(flame * (0.75 + 0.35 * fl)) * flame;
+  float a = flame * 0.95;
+  if (d < 0.0) {
+    // the iris: a glazed yellow cat's eye, veined with fire
+    float iris = 1.0 - smoothstep(0.0, lid + 0.001, abs(p.y) * 0.4 + abs(p.x) * 0.6);
+    float vein = fbm(vec2(ang * 9.0, length(p) * 5.0 - T * 0.6));
+    vec3 ic = mix(vec3(1.0, 0.45, 0.04), vec3(1.0, 0.92, 0.55), iris * 0.8 + vein * 0.25);
+    // the slit of the pupil, opening on a pit
+    float slitW = 0.045 * (1.0 - smoothstep(0.0, lid + 0.02, abs(p.y))) + 0.008;
+    float slit = smoothstep(slitW, slitW * 0.45, abs(p.x));
+    float rim = smoothstep(slitW * 2.4, slitW, abs(p.x)) - slit;
+    ic = mix(ic, vec3(0.02, 0.0, 0.0), slit) + rim * vec3(1.0, 0.5, 0.1) * 0.6;
+    float edge = smoothstep(0.0, -0.05, d);
+    col = mix(col, ic * (0.85 + 0.15 * sin(T * 3.0)), edge);
+    a = max(a, edge);
+  }
+  // a dim red halo of heat around it all
+  float halo = exp(-r * 2.4) * 0.35;
+  col += vec3(0.6, 0.08, 0.0) * halo; a = clamp(a + halo, 0.0, 1.0);
+  gl_FragColor = vec4(col, a);
+}`;
 function eyeSource() {
-  for (const o of things.values()) { const L = o.userData.landmark; if (L && L.file === 'BaradDur') { const p = landmarkPeak(o); return { p: p.add(new THREE.Vector3(0, 0.9, 0)), lm: true }; } }
+  for (const o of things.values()) { const L = o.userData.landmark; if (L && L.file === 'BaradDur') { const p = landmarkPeak(o); return { p: p.add(new THREE.Vector3(0, 0.75, 0)), lm: true }; } }
   const cap = S.settings && S.settings.capEvil; const p = cap && T[cap] ? toWorld(...T[cap].hub, 7) : new THREE.Vector3(0, 9, 0); return { p, lm: false };
 }
 function buildEye(n) {
@@ -4905,9 +4943,12 @@ function buildEye(n) {
     cone.position.copy(tgt).add(src.p).multiplyScalar(0.5); cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
     beams.push(m);
   }
-  // the eye itself
-  const eye = add(new THREE.Sprite(new THREE.SpriteMaterial({ map: eyeTex(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })));
-  eye.position.copy(src.p); eye.scale.set(3.4, 3.4, 1);
+  // the eye itself: a lidless cat's eye wreathed in flame, always turned to the viewer
+  const eyeMat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, uniforms: { uTime: { value: 0 } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv * 2.0 - 1.0; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: EYE_FRAG });
+  const eye = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), eyeMat); eye.renderOrder = 9; g.add(eye);
+  eye.position.copy(src.p); eye.scale.set(3.8, 3.8, 1); eye.userData.mat = eyeMat;
   // where it looks: a burning pool of light on the land, a ripple of fire spreading from it, and a red light
   const pool = document.createElement('canvas'); pool.width = pool.height = 128; { const x = pool.getContext('2d'), gr = x.createRadialGradient(64, 64, 0, 64, 64, 64);
     gr.addColorStop(0, 'rgba(255,190,90,0.9)'); gr.addColorStop(0.35, 'rgba(255,90,20,0.55)'); gr.addColorStop(0.75, 'rgba(200,30,0,0.18)'); gr.addColorStop(1, 'rgba(120,0,0,0)'); x.fillStyle = gr; x.fillRect(0, 0, 128, 128); }
@@ -4936,9 +4977,12 @@ function stepEye(dt, now) {
     EYE.key = key;
   }
   EYE.booted = true;
+  // Barad-dûr's banner comes down while the Eye is open, so its pole doesn't run through the Eye
+  const bd = Object.keys(LANDMARKS).length && LANDMARKS['Barad-dûr'] ? +Object.keys(T).find((k) => T[k].name === 'Barad-dûr') : 0, bf = bd && flags.get(bd);
+  if (bf && bf.g) bf.g.visible = !EYE.g;
   if (!EYE.g) return;
   const u = EYE.g.userData, t = now / 1000, beat = 0.5 + 0.5 * Math.sin(t * 2.2);
-  u.eye.scale.setScalar(3.2 + 0.4 * beat); u.eye.material.opacity = 0.85 + 0.15 * beat;
+  u.eye.quaternion.copy(camera.quaternion); u.eye.material.uniforms.uTime.value = t; u.eye.scale.setScalar(3.7 + 0.2 * beat);
   for (const b of u.beams) b.uniforms.uTime.value = t;
   u.ring.material.opacity = 0.65 + 0.3 * beat; u.glow.material.opacity = 0.3 + 0.2 * beat; u.light.intensity = 22 + 14 * beat;
   const w = (t * 0.45) % 1; u.ring2.scale.setScalar(0.8 + w * 2.6); u.ring2.material.opacity = 0.55 * (1 - w);   // a ripple of fire spreading outwards
