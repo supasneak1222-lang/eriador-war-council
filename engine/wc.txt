@@ -471,7 +471,7 @@ function snowedFor(n, side) return isSnowed(n) and not mappedFor(n, side) end
 function stepCostFor(u, v, wagon, free, side)
   free = free or 0
   if wagon and ((S.terr[u].owner == "Neutral" and not mappedFor(u, side)) or (S.terr[v].owner == "Neutral" and not mappedFor(v, side))) then return 2, free end
-  if S.terr[u].b.roads and free > 0 then return 0, free - 1 end
+  if (S.terr[u].b.roads or (MOVER and umbarRoads(MOVER, u))) and free > 0 then return 0, free - 1 end
   return 1, free
 end
 
@@ -819,6 +819,7 @@ function startOfTurn(firstTurn)
       if a.buildLeft <= 0 then
         a.status = "ready"
         clog(a.side .. " army " .. a.name .. " is ready at " .. tname(a.loc) .. ".", a.side, "armies")
+        if umbarArmy(a) then a.umbarLand = S.turn; clog("The Corsairs of Umbar: " .. a.name .. " may set sail at once to any territory next to the sea or the Anduin.", a.side, "armies") end
         pieceHook("ready", "army", a)
       end
     end
@@ -1124,7 +1125,7 @@ function createArmy(side, f)
   local ok = stageOk("Building"); if ok ~= true then return ok end
   local n = tonumber(f.terr)
   local size = tonumber(f.size) or 400
-  if armyPoints(side) + size > armyCap(side) and not S.settings.override then
+  if armyPoints(side) + size > armyCap(side) and not S.settings.override and not f.freeCap then
     return side .. " fields " .. armyPoints(side) .. " of its " .. armyCap(side) .. " pt Point Cap (2000, +600 for each City): a " .. size ..
            " pt army would go over. Build a City or raise a smaller army."
   end
@@ -1161,17 +1162,26 @@ function createArmy(side, f)
     end
     cost = cost + MERC[mc + 1].cost
   end
+  local spawn = f.spawn and S.settings.override
+  if spawn then cost = 0 end
   local r = payOrFail(side, n, cost); if r ~= true then return r end
   local turns = ARMY_COST[size][2] - (S.terr[n].b.mustering and 1 or 0)
   if turns < 1 then turns = 1 end
+  if spawn then turns = 0 end
   local a = {
     id = newId(), side = side, name = name, size = size, leader = leader, named = f.named and true or false,
     list = f.list or "", merc = f.merc and true or false, cavalry = f.cavalry and true or false, canMarch = f.canMarch and true or false, allied = f.allied and true or false,
-    units = f.units or "", roster = f.roster, loc = n, status = "building", buildLeft = turns, damage = 0, carried = 0, paid = cost, raisedAt = n,
-    seenLeader = {}, seenUnits = {}, wounds = {},
+    units = f.units or "", roster = f.roster, loc = n, status = spawn and "ready" or "building", buildLeft = turns, damage = 0, carried = 0, paid = cost, raisedAt = n,
+    seenLeader = {}, seenUnits = {}, wounds = {}, umbar = f.umbar or nil, freeCap = (f.freeCap and S.settings.override) or nil,
   }
   table.insert(S.armies, a)
   numberArmy(a)
+  if spawn then
+    clog("Rule override: " .. side .. " army " .. name .. " (" .. size .. " pts) placed at " .. tname(n) .. ", ready now" ..
+         (a.freeCap and ", not counted against the Point Cap" or "") .. (a.umbar and ", an Umbar army" or "") .. ".", side, "armies")
+    pieceHook("created", "army", a)
+    return true, a
+  end
   clog(side .. " began raising " .. name .. " (" .. size .. " pts" .. (a.merc and ", Mercenary" or "") ..
       ") at " .. tname(n) .. ": " .. cost .. " RP, ready in " .. turns .. " turns.", side)
   pieceHook("created", "army", a)
@@ -2307,6 +2317,12 @@ function reinforcementLines(n, lines)
   end
 end
 
+-- Umbar armies treat the shore as Roads: the army being moved is known while its range and path are worked out.
+do
+  local mv = moveArmy
+  function moveArmy(a, ...) MOVER = a; local ok, r, r2 = pcall(mv, a, ...); MOVER = nil; if not ok then error(r, 0) end; return r, r2 end
+end
+
 --[[ ===================================================================
      WAR COUNCIL - Supply Wagons: naming, cargo, capture and supply routes
      =================================================================== ]]
@@ -3348,6 +3364,11 @@ end
 
 end
 
+do
+  local mr = moveRangeFor
+  function moveRangeFor(unit, isArmy, ...) if isArmy then MOVER = unit end; local ok, r = pcall(mr, unit, isArmy, ...); MOVER = nil; if not ok then error(r, 0) end; return r end
+end
+
 --[[ ===================================================================
      WAR COUNCIL - each campaign's special rules for Good and Evil
      auto = the War Council applies it; declare = a button the side presses (with its cooldown)
@@ -3664,6 +3685,46 @@ function pillageBonusWhy(a)
   if a.side == "Evil" and (a.size or 0) <= 400 and hasRule("Evil", "raiders") then table.insert(w, "Rhudaur Raiders") end
   if a.side == "Evil" and S.dunland == S.turn then table.insert(w, "Dunland's Rage") end
   return table.concat(w, " and ")
+end
+
+-- ---------- Gondor: The Corsairs of Umbar ----------
+function umbarArmy(a)
+  if not a or a.side ~= "Evil" or not hasRule("Evil", "corsairs") then return false end
+  if a.umbar ~= nil then return a.umbar and true or false end
+  local l = string.lower(a.list or "")
+  return string.find(l, "umbar", 1, true) ~= nil or string.find(l, "corsair", 1, true) ~= nil
+end
+function shoreTerr(n) return WATER[n] ~= nil and #WATER[n] > 0 end
+function umbarRoads(a, n) return a.side ~= nil and umbarArmy(a) and shoreTerr(n) end
+function setUmbar(a, on)
+  if not a then return "Choose an army." end
+  if not hasRule(a.side, "corsairs") then return "Only Evil's armies can be Umbar armies, in the Gondor theatre." end
+  a.umbar = on and true or false
+  clog(a.name .. (a.umbar and " is now counted as an Umbar army (The Corsairs of Umbar)." or " is no longer counted as an Umbar army."), a.side, "armies")
+  return true
+end
+function setFreeCap(a, on)
+  if not a then return "Choose an army." end
+  if not S.settings.override then return "Turn on Rule override first." end
+  a.freeCap = on and true or nil
+  clog("Rule override: " .. a.name .. (on and " no longer counts against the Point Cap." or " counts against the Point Cap again."), a.side, "armies")
+  return true
+end
+function corsairLanding(a, n)
+  if not a then return "Choose an army." end
+  if not umbarArmy(a) then return a.name .. " isn't an Umbar army." end
+  if a.umbarLand ~= S.turn and not S.settings.override then return a.name .. " can only set sail at once on the turn it finishes raising." end
+  if a.moved and not S.settings.override then return a.name .. " has already moved this turn." end
+  if not (n and S.terr[n] and shoreTerr(n)) then return "Pick a territory next to the sea or the Anduin." end
+  local from = a.loc
+  a.loc = n; a.umbarLand = nil
+  armyLeft(a, from)
+  if #armiesIn(n, OTHER[a.side]) > 0 then a.moved = true; clog(a.name .. " landed among an enemy army at " .. tname(n) .. ".", nil, "armies") end
+  clog("The Corsairs of Umbar: " .. a.name .. " set sail from " .. tname(from) .. " to " .. tname(n) .. ".", a.side, "armies")
+  pieceHook("moved", "army", a, { from, n })
+  armyArrivedCaptures(a)
+  if S.terr[n].owner ~= a.side then clog("An army has entered " .. tname(n) .. ".") end
+  return true
 end
 
 -- ---------- Gondor: Stubbornness of Stewards ----------
@@ -12244,6 +12305,9 @@ function uiRun(player, arg)
       end
     else u.confirm = "brestore"; keepConfirm = true end
   elseif a == "prio" then r = rollPriority(); say(pk, r)
+  elseif a == "umbartog" then local arm = armyById(numOf(p1)); r = setUmbar(arm, not (arm and umbarArmy(arm))); say(pk, r, "Done.")
+  elseif a == "freecaptog" then local arm = armyById(numOf(p1)); r = setFreeCap(arm, not (arm and arm.freeCap)); say(pk, r, "Done.")
+  elseif a == "umbarland" then r = corsairLanding(armyById(numOf(p1)), numOf(f.umbarT)); say(pk, r, "Set sail.")
   elseif a == "rule" then r = declareRule(p1, p2, numOf(f.evEyeT), idOf(f.evArmy) or numOf(f.evArmy)); say(pk, r, "Special rule used.")
   elseif a == "evmerc" then
     r = hireMercs(p1, numOf(f.evMercT), { name = f.evMercName, leader = f.evMercLeader, list = f.evMercList, units = f.evMercUnits,
@@ -12291,9 +12355,10 @@ function uiRun(player, arg)
     if arm then f.eLeader, f.eList, f.eUnits = arm.leader, arm.list, arm.units end
   elseif a == "raise" then
     local ok2, arm = createArmy(side, { name = f.aName, size = f.aSize or "400", leader = f.aLeader or "", named = f.aNamed == "True",
+      spawn = f.aSpawn == "True", freeCap = f.aFreeCap == "True", umbar = (f.aUmbar == "True") or nil,
       list = f.aList or "", merc = f.aMerc == "True" and f.aAllied ~= "True", allied = f.aAllied == "True", cavalry = f.aCav == "True", canMarch = f.aMarchOK == "True", units = f.aUnits or "", terr = numOf(f.aTerr),
       roster = u.pasteRoster })
-    say(pk, ok2, "Army is being raised.")
+    say(pk, ok2, (f.aSpawn == "True" and S.settings.override) and "Army placed." or "Army is being raised.")
     if ok2 == true then
       u.sel.army = arm.id; f.aName, f.aLeader, f.aUnits = nil, nil, nil
       u.pasteRoster = nil; f.r_paste = nil; if u.paste then u.paste.r_paste = nil end

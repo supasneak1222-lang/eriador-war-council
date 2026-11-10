@@ -484,7 +484,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=1889941558').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=8a87c17078').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -1872,7 +1872,8 @@ function renderCard() {
   const rs = el.querySelector('#raiseGo'); if (rs) rs.onclick = () => {
     const f = rForm, tf = (x) => x ? 'True' : 'False';
     const r = act('raise', { aName: f.aName || '', aSize: f.aSize || '400', aLeader: f.aLeader || '', aList: f.aList || '', aCav: tf(f.aCav), aNamed: tf(f.aNamed), aTerr: String(sel.terr),
-                             aMerc: tf(f.kind === 'merc'), aAllied: tf(f.kind === 'allied'), aMarchOK: tf(f.aMarchOK), aUnits: f.aUnits || '' });
+                             aMerc: tf(f.kind === 'merc'), aAllied: tf(f.kind === 'allied'), aMarchOK: tf(f.aMarchOK), aUnits: f.aUnits || '',
+                             aUmbar: hasCorsairs(acting) ? tf(f.aUmbar != null ? f.aUmbar : /umbar|corsair/i.test(f.aList || '')) : '', aSpawn: tf(S.settings.override && f.aSpawn), aFreeCap: tf(S.settings.override && f.aFreeCap) });
     if (r.ok) { const made = (r.ev || []).find(e => e.ev === 'created' && e.kind === 'army'); if (made && f.figure) setFigure(made.id, f.figure); open.raise = false; rForm = { aSize: '400', kind: 'normal' }; } renderCard();
   };
   el.querySelectorAll('[data-figpick]').forEach(b => b.onclick = () => {
@@ -1934,6 +1935,9 @@ const gpts = (n) => (S.garrison && S.garrison[n - 1]) || 400;
 const note = (t, warn) => `<div style="color:${warn ? '#f0c27a' : 'var(--dim)'};margin-top:6px;font-size:14.5px">${t}</div>`;
 const opt = (val, label, selected) => `<option value="${esc(val)}"${selected ? ' selected' : ''}>${esc(label)}</option>`;
 const pubName = (a) => (a.pub && a.pub[acting]) || a.name;
+const hasRuleApp = (side, key) => !!((S.specials || {})[side] || []).find(r => r.key === key);
+const hasCorsairs = (side) => hasRuleApp(side, 'corsairs');
+const isUmbar = (a) => a.side === 'Evil' && hasCorsairs('Evil') && (a.umbar != null ? !!a.umbar : /umbar|corsair/i.test(a.list || ''));
 const canSee = (side) => side === acting || S.settings.override || !S.settings.hidden;
 function terrCard(n) {
   const t = S.terr[n - 1], see = canSee(t.owner), I = JSON.parse(luaCall('appTerrInfo', n, acting));
@@ -1986,8 +1990,12 @@ function terrCard(n) {
       ${figRow(f.figure, acting)}
       <select data-rf="kind">${opt('normal', 'Regular army', f.kind === 'normal')}${al ? opt('allied', `Allied: ${al.name} (${al.list})${S.alliance['used' + acting] ? ' · in use' : ''}`, f.kind === 'allied') : ''}${opt('merc', 'Mercenaries', f.kind === 'merc')}</select>
       <div class="row"><label><input type="checkbox" data-rf="aCav" ${f.aCav ? 'checked' : ''}> Cavalry only</label><label><input type="checkbox" data-rf="aMarchOK" ${f.aMarchOK ? 'checked' : ''}> Heroic March</label></div>
+      ${hasCorsairs(acting) ? `<label title="The Corsairs of Umbar"><input type="checkbox" data-rf="aUmbar" ${(f.aUmbar != null ? f.aUmbar : /umbar|corsair/i.test(f.aList || '')) ? 'checked' : ''}> Umbar army (The Corsairs of Umbar)</label>` : ''}
+      ${S.settings.override ? `<div style="border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin:4px 0"><b style="font-family:var(--display);font-size:11px;color:var(--gold);letter-spacing:.06em">RULE OVERRIDE</b>
+        <label><input type="checkbox" data-rf="aSpawn" ${f.aSpawn ? 'checked' : ''}> Place it now: free and ready at once</label>
+        <label><input type="checkbox" data-rf="aFreeCap" ${f.aFreeCap ? 'checked' : ''}> Special-rule army: doesn't count against the Point Cap${hasRuleApp(acting, 'hordes') ? ' (The Hordes of Mordor)' : ''}</label></div>` : ''}
       <div id="rPrev"></div>
-      <button class="gold" id="raiseGo">Raise army</button></div>`;
+      <button class="gold" id="raiseGo">${S.settings.override && f.aSpawn ? 'Place army' : 'Raise army'}</button></div>`;
     }
     const room2 = S.agentRoom[acting], mineArmies = S.armies.filter(a => a.side === acting && a.status !== 'building');
     h += `<h3>Agents${ruleLink('agents')}</h3><button data-toggle="recruit">${open.recruit ? 'Cancel' : 'Recruit an agent here'}</button>`;
@@ -2140,6 +2148,16 @@ function armyCard(a) {
   const kn = [I.enemyKnows.leader && 'leader', I.enemyKnows.units && 'units'].filter(Boolean);
   if (kn.length) h += note(`The enemy has scouted this army's ${kn.join(' and ')}.`);
   if (S.settings.hidden) h += note(I.revealed ? 'Known to the enemy by name.' : `The enemy sees it as ${esc(I.publicName)}.`);
+  if (hasCorsairs(a.side) && (a.side === acting || S.settings.override)) {
+    const um = isUmbar(a);
+    h += `<div class="row" style="margin-top:6px"><label title="The Corsairs of Umbar"><input type="checkbox" data-act="umbartog~${a.id}" ${um ? 'checked' : ''}> Umbar army (The Corsairs of Umbar)</label></div>`;
+    if (um && a.status !== 'building' && !a.moved && (a.umbarLand === S.turn || S.settings.override) && a.side === acting) {
+      const ns = (S.shore || []).filter(n => n !== a.loc).sort((x, y) => T[x].name.localeCompare(T[y].name));
+      h += `<h3>The Corsairs of Umbar${ruleLink('specials')}</h3><div class="row"><select id="umbarT" style="flex:1;min-width:0">${ns.map(n => opt(n, T[n].name)).join('')}</select><button class="gold" data-act="umbarland~${a.id}" data-f="umbarT=umbarT">Set sail</button></div>
+        ${note(a.umbarLand === S.turn ? 'Just finished raising: it may set sail at once to any territory next to the sea or the Anduin.' : 'Rule override: set sail as if it had just finished raising.')}`;
+    }
+  }
+  if (S.settings.override) h += `<div class="row" style="margin-top:6px"><label title="Rule override"><input type="checkbox" data-act="freecaptog~${a.id}" ${a.freeCap ? 'checked' : ''}> Override: doesn't count against the Point Cap</label></div>`;
   if (a.status === 'building') {
     if (a.side === acting && (stg === 'Building' || S.settings.override) && I.raiseRefund != null)
       h += `<h3>Recruitment</h3><button data-act="acancel~${a.id}" title="Press twice to confirm. Building stage.">Cancel recruitment (refund ${I.raiseRefund} RP)</button>
@@ -4467,7 +4485,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=1889941558').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=8a87c17078').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4681,7 +4699,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=1889941558').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=8a87c17078').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }

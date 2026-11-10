@@ -79,6 +79,8 @@ function appState()
   out.log = log
   out.logTotal = n
   out.battleAt = battleTerritories()
+  out.shore = {}
+  for i = 1, #S.terr do if shoreTerr(i) then out.shore[#out.shore + 1] = i end end
   out.undo = (#(UNDO or {}) > 0) and UNDO[#UNDO].label or nil
   out.stageName = S.started and STAGES[S.stage] or nil
   out.relief = {}
