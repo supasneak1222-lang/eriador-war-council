@@ -3430,7 +3430,7 @@ THEATRE_RULES = {
 }
 THEATRE_RULES.Gondor = {
   { key = "established", name = "Established Power",
-    text = "Both Good and Evil start the campaign holding 12 territories. Minas Morgul begins with Fortifications." },
+    text = "Both Good and Evil start the campaign holding 12 territories. Minas Morgul begins with Fortifications and a City." },
   { key = "anduin", name = "The River Anduin",
     text = "An army in a territory on the Anduin or the sea may pay 25 RP per territory, from the RP it carries, to sail up to 4 territories along the shore. Sailing uses 1 point of its movement. It may instead cross the Anduin to a territory on the far bank for a flat 75 RP, which ends its movement. Example: 100 RP to sail from Belfalas to the Crossings of Erui; 75 RP to cross from Emyn Arnen to the Crossings of Erui." },
   { key = "osgiliath", name = "Osgiliath Fatigue",
@@ -3615,7 +3615,8 @@ function rulesAtStart()
   if theatreRule("established") then   -- Gondor: the Dead City is walled from the start
     local mm = terrByName("Minas Morgul")
     if mm and not S.terr[mm].b.fort then S.terr[mm].b.fort = true; pieceHook("built", mm, "fort") end
-    if mm then clog("Established Power: Minas Morgul begins with Fortifications.") end
+    if mm and not S.terr[mm].b.city then S.terr[mm].b.city = true; pieceHook("built", mm, "city") end
+    if mm then clog("Established Power: Minas Morgul begins with Fortifications and a City.") end
   end
   if hasRule("Evil", "hordes") then
     local cap = S.settings.capEvil
@@ -3685,6 +3686,23 @@ function pillageBonusWhy(a)
   if a.side == "Evil" and (a.size or 0) <= 400 and hasRule("Evil", "raiders") then table.insert(w, "Rhudaur Raiders") end
   if a.side == "Evil" and S.dunland == S.turn then table.insert(w, "Dunland's Rage") end
   return table.concat(w, " and ")
+end
+
+-- Rule override: put up or take down a building, free and at once
+function overrideBuilding(n, key, on)
+  if not S.settings.override then return "Turn on Rule override first." end
+  local t = n and S.terr[n]; if not t then return "Choose a territory." end
+  local b = BUILDING_BY_KEY[key]; if not b or key == "fortup" then return "Choose a building." end
+  if on then
+    if t.b[key] then return tname(n) .. " already has " .. b.name .. "." end
+    t.b[key] = true; pieceHook("built", n, key)
+  else
+    if not t.b[key] then return tname(n) .. " has no " .. b.name .. "." end
+    t.b[key] = nil
+    if key == "fort" then t.fortup = nil end
+  end
+  clog("Rule override: " .. b.name .. (on and " added to " or " removed from ") .. tname(n) .. ".", nil, "territories")
+  return true
 end
 
 -- ---------- Gondor: The Corsairs of Umbar ----------
@@ -12305,6 +12323,7 @@ function uiRun(player, arg)
       end
     else u.confirm = "brestore"; keepConfirm = true end
   elseif a == "prio" then r = rollPriority(); say(pk, r)
+  elseif a == "ovbuild" then r = overrideBuilding(numOf(p1), f.ovB, p2 == "1"); say(pk, r, "Done.")
   elseif a == "umbartog" then local arm = armyById(numOf(p1)); r = setUmbar(arm, not (arm and umbarArmy(arm))); say(pk, r, "Done.")
   elseif a == "freecaptog" then local arm = armyById(numOf(p1)); r = setFreeCap(arm, not (arm and arm.freeCap)); say(pk, r, "Done.")
   elseif a == "umbarland" then r = corsairLanding(armyById(numOf(p1)), numOf(f.umbarT)); say(pk, r, "Set sail.")

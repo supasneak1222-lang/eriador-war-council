@@ -484,7 +484,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=8a87c17078').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=823caf1822').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -979,7 +979,7 @@ const LANDMARKS = {
     'Edoras': { always: true, hides: ['city', 'fort'], file: 'Meduseld', uv: [0.525, 0.765], size: 3.8, sink: 0.05, rot: 0 } },
 }[MAP_KEY] || {};
 function landmarkFor(n, key) { const L = LANDMARKS[T[n] && T[n].name]; return L && !L.always && L.key === key ? L : null; }
-function landmarkHides(n, key, t) { const L = LANDMARKS[T[n] && T[n].name]; return !!(L && (L.hides || []).includes(key) && (L.always || (t.b && t.b[L.key]))); }   // its own walls stand for the fortress
+function landmarkHides(n, key, t) { const L = LANDMARKS[T[n] && T[n].name]; if (!L || (!L.always && key === L.key)) return false; return !!(L.always || (t.b && t.b[L.key])); }   // a landmark stands for everything built there
 function landmarkPeak(o) {   // the highest point of a landmark, in the world
   o.updateMatrixWorld(true); const best = new THREE.Vector3(0, -1e9, 0), v = new THREE.Vector3();
   o.traverse((m) => { if (!m.isMesh) return; const pa = m.geometry.attributes.position; for (let i = 0; i < pa.count; i += 3) { v.fromBufferAttribute(pa, i).applyMatrix4(m.matrixWorld); if (v.y > best.y) best.copy(v); } });
@@ -1946,8 +1946,10 @@ function terrCard(n) {
   let h = `<h2>${esc(tname(n))}</h2><div class="sub"><span class="pill ${t.owner}">${t.owner}</span>${I.capital ? `<span class="pill warn">${I.capital} capital</span>` : ''}${t.noIncome ? `<span class="pill warn">No supplies for ${t.noIncome} turn${t.noIncome === 1 ? '' : 's'}</span>` : ''}</div>
     <div class="kv"><span>Stockpile</span><span>${see ? (t.stock || 0) + ' RP' : 'unknown'}</span><span>Income</span><span>+${S.income[n - 1]} RP a turn</span>
     <span>To conquer</span><span>${I.conquer} End stage${I.conquer === 1 ? '' : 's'}</span><span>Borders</span><span>${I.borders.map(m => `<button class="link" data-goto="${m}" title="${esc(T[m].name)}">${m}</button>`).join(' ')}</span></div>`;
-  if (S.settings.override) h += `<div class="form" style="margin-top:8px;border:1px solid var(--line);border-radius:6px;padding:8px"><b style="font-family:var(--display);font-size:12px;color:var(--gold);letter-spacing:.06em">RULE OVERRIDE · RESOURCES</b>
-    <div class="row" style="margin-top:6px"><input id="stockOv" type="number" min="0" placeholder="RP" style="width:90px"><button class="gold" data-act="stock~${n}~1" data-f="stockAdj=stockOv">Add</button><button data-act="stock~${n}~-1" data-f="stockAdj=stockOv">Remove</button><button data-act="stock~${n}~set" data-f="stockAdj=stockOv">Set to</button></div></div>`;
+  if (S.settings.override) h += `<div class="form" style="margin-top:8px;border:1px solid var(--line);border-radius:6px;padding:8px"><b style="font-family:var(--display);font-size:12px;color:var(--gold);letter-spacing:.06em">RULE OVERRIDE · RESOURCES AND BUILDINGS</b>
+    <div class="row" style="margin-top:6px"><input id="stockOv" type="number" min="0" placeholder="RP" style="width:90px"><button class="gold" data-act="stock~${n}~1" data-f="stockAdj=stockOv">Add</button><button data-act="stock~${n}~-1" data-f="stockAdj=stockOv">Remove</button><button data-act="stock~${n}~set" data-f="stockAdj=stockOv">Set to</button></div>
+    <div class="row" style="margin-top:6px"><select id="ovB" style="flex:1;min-width:0">${I.buildings.filter(b => b.key !== 'fortup').map(b => opt(b.key, b.name + (t.b && t.b[b.key] ? ' (built)' : ''))).join('')}</select><button class="gold" data-act="ovbuild~${n}~1" data-f="ovB=ovB">Add building</button><button data-act="ovbuild~${n}~0" data-f="ovB=ovB">Remove</button></div>
+    ${note('Added at once and free. Every change goes in the log.')}</div>`;
   const facts = [];
   if (t.conq) facts.push(t.conq.held ? `${t.conq.by} is here but can't conquer it while the fortress at ${T[t.conq.held].name} holds.` : `Being conquered by ${t.conq.by}: ${t.conq.prog || 0} of ${t.conq.need || '?'} turns.`);
   if (I.siege && I.siege.relief) facts.push(`${OTHER_SIDE(I.siege.by)} has marched on the besiegers the turn the siege began: an ordinary battle is fought now. If ${I.siege.by} loses, the siege is lifted.`);
@@ -4485,7 +4487,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=8a87c17078').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=823caf1822').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4699,7 +4701,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=8a87c17078').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=823caf1822').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
