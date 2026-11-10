@@ -3409,7 +3409,7 @@ THEATRE_RULES = {
 }
 THEATRE_RULES.Gondor = {
   { key = "established", name = "Established Power",
-    text = "Both Good and Evil start the campaign holding 12 territories." },
+    text = "Both Good and Evil start the campaign holding 12 territories. Minas Morgul begins with Fortifications." },
   { key = "anduin", name = "The River Anduin",
     text = "An army in a territory on the Anduin or the sea may pay 25 RP per territory, from the RP it carries, to sail up to 4 territories along the shore. Sailing uses 1 point of its movement. It may instead cross the Anduin to a territory on the far bank for a flat 75 RP, which ends its movement. Example: 100 RP to sail from Belfalas to the Crossings of Erui; 75 RP to cross from Emyn Arnen to the Crossings of Erui." },
   { key = "osgiliath", name = "Osgiliath Fatigue",
@@ -3590,6 +3590,11 @@ function rulesAtStart()
     local hd = terrByName("Helm's Deep")
     if hd and not S.terr[hd].b.fort then S.terr[hd].b.fort = true; pieceHook("built", hd, "fort") end
     if hd then clog("The Hornburg: Helm's Deep begins with Fortifications, and its garrison is 600 points.") end
+  end
+  if theatreRule("established") then   -- Gondor: the Dead City is walled from the start
+    local mm = terrByName("Minas Morgul")
+    if mm and not S.terr[mm].b.fort then S.terr[mm].b.fort = true; pieceHook("built", mm, "fort") end
+    if mm then clog("Established Power: Minas Morgul begins with Fortifications.") end
   end
   if hasRule("Evil", "whitehand") then
     local cap = S.settings.capEvil
@@ -12225,7 +12230,9 @@ function uiRun(player, arg)
   elseif a == "own" then setOwner(tonumber(p1), p2, "set by " .. (player and player.steam_name or "player")); say(pk, true, tname(tonumber(p1)) .. " is now " .. p2 .. ".")
   elseif a == "stock" then
     local amt = tonumber(f.stockAdj or "")
-    if not amt then say(pk, "Enter an amount.") else r = adjustStock(tonumber(p1), amt * tonumber(p2), player and player.steam_name or "player"); say(pk, r, "Stockpile updated.") end
+    if not amt then say(pk, "Enter an amount.") else
+      local tn = tonumber(p1); local delta = (p2 == "set") and (math.max(0, amt) - (S.terr[tn].stock or 0)) or amt * tonumber(p2)
+      r = adjustStock(tn, delta, player and player.steam_name or "player"); say(pk, r, "Stockpile updated.") end
   elseif a == "build" then r = construct(side, tonumber(p1), p2); say(pk, r, "Construction started.")
   elseif a == "selA" then u.sel.army = (p1 ~= "new") and tonumber(p1) or nil
     local arm = u.sel.army and armyById(u.sel.army)
