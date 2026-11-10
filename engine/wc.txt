@@ -3414,7 +3414,7 @@ SPECIAL_RULES = {
     },
     Evil = {
       { key = "hordes", name = "The Hordes of Mordor", auto = true, text = "Evil starts the campaign with a free 600 point Legion of Mordor army, with no named Heroes and no Monsters, in its capital. It doesn't count against Evil's Point Cap." },
-      { key = "corsairs", name = "The Corsairs of Umbar", text = "When an Umbar army finishes raising, Evil may move it at once to a territory next to the sea or the Anduin. Umbar armies treat territories next to the sea or the Anduin as if they had Roads." },
+      { key = "corsairs", name = "The Corsairs of Umbar", text = "When an Umbar army (one raised from the Umbar or Corsair lists) finishes raising, Evil may move it at once to a territory next to the sea or the Anduin; this doesn't use its movement. Umbar armies treat territories next to the sea or the Anduin as if they had Roads." },
       { key = "eye", name = "The Eye of Sauron", declare = "Logistics", text = "At the start of the Logistics stage Evil may pick a territory: armies that start in it, pass through it or stop in it are revealed. In a battle there, the Good army has +1 Courage and the Evil army -1 Courage." },
     },
   },
