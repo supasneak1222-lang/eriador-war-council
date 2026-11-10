@@ -300,6 +300,10 @@ a.btn-link:hover{filter:brightness(1.08)}
 #popup .phead .big{font-size:clamp(24px,4vw,36px);text-transform:uppercase} #popup .big.Good{color:#a9dfb8} #popup .big.Evil{color:#f4b3a9}
 #popup .pbody{overflow:auto;padding:12px 16px} #popup .pbody h3{font-family:var(--display);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold);margin:10px 0 4px}
 #popup .pfoot{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--line2)}
+body.uiHidden *:not(#c):not(:has(#c)):not(#uiRestore):not(#uiRestore *){visibility:hidden!important}
+body.uiHidden #uiRestore{visibility:visible}
+#uiRestore{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:50;background:rgba(18,13,8,.82);color:var(--ink);border:1px solid var(--line);border-radius:999px;padding:8px 16px;font-family:var(--body);font-size:15px;transition:opacity .6s;pointer-events:none}
+#uiRestore.fade{opacity:0}
 #lmPanel{position:fixed;right:16px;top:calc(64px + env(safe-area-inset-top,0px));width:330px;max-width:calc(100vw - 32px);max-height:calc(100vh - 90px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;z-index:3;box-sizing:border-box;color:var(--ink);font-family:var(--body)}
 #lmPanel select{width:100%;margin:6px 0;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px}
 #lmPanel .lmrow select{width:auto;margin:0;padding:1px 3px}
@@ -417,6 +421,7 @@ a.rule:hover{border-color:var(--gold)}
     <button class="ico" id="bLog" title="Log" aria-label="Log"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg></button>
     <button class="ico" id="bDice" title="Roll two dice" aria-label="Roll dice"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="9" r="1.2" fill="currentColor"/><circle cx="15" cy="15" r="1.2" fill="currentColor"/><circle cx="15" cy="9" r="1.2" fill="currentColor"/><circle cx="9" cy="15" r="1.2" fill="currentColor"/></svg></button>
     <button class="ico" id="bMusic" title="Music on or off" aria-label="Music"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></svg></button>
+    <button class="ico" id="bHideUi" title="Hide the interface for screenshots (H)" aria-label="Hide the interface"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
     <button class="ico" id="bSettings" title="Settings: table rules, sounds, music, saves, reports, the Chronicle" aria-label="Settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg></button>
   </div>
 </div>
@@ -484,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=0c6684b6c6').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=c2b6617698').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -3812,9 +3817,24 @@ function forecastHtml() {
 const keysHeld = new Set();
 const typing = () => /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '') || (document.activeElement && document.activeElement.isContentEditable);
 let tabIdx = -1;
+// ------------------------------------------------------------------ hide the whole interface for cinematic screenshots
+let uiHideT = 0;
+function setUiHidden(on) {
+  document.body.classList.toggle('uiHidden', on);
+  let tip = $('uiRestore'); if (!tip) { tip = document.createElement('div'); tip.id = 'uiRestore'; document.body.append(tip); }
+  clearTimeout(uiHideT);
+  if (on) { tip.textContent = 'Interface hidden · press H or Esc to bring it back'; tip.hidden = false; tip.classList.remove('fade'); uiHideT = setTimeout(() => tip.classList.add('fade'), 2200); }
+  else tip.hidden = true;
+}
+$('bHideUi').onclick = () => setUiHidden(true);
+addEventListener('keydown', (e) => {
+  if (!document.body.classList.contains('uiHidden') || typing()) return;
+  if (e.key === 'Escape' || e.key.toLowerCase() === 'h') { e.preventDefault(); e.stopImmediatePropagation(); setUiHidden(false); }
+}, true);
 addEventListener('keydown', (e) => {
   if (typing() || e.altKey || e.metaKey) return;
   const k = e.key.toLowerCase();
+  if (k === 'h' && !e.ctrlKey) { setUiHidden(!document.body.classList.contains('uiHidden')); return; }
   if (e.ctrlKey) { if (k === 'z') { e.preventDefault(); act('undo'); } return; }
   if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'q', 'e', '=', '+', '-', '_'].includes(k)) { keysHeld.add(k); if (k.startsWith('arrow')) e.preventDefault(); fly = null; return; }
   if (!$('throwBar').hidden) return;              // the dice prompt owns the keyboard (R throws)
@@ -4491,7 +4511,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=0c6684b6c6').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=c2b6617698').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4705,7 +4725,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=0c6684b6c6').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=c2b6617698').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
