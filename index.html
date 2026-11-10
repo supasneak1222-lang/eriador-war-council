@@ -484,7 +484,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=3701c98620').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=1889941558').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -2310,6 +2310,13 @@ function turnPanel() {
   if (eye) h += `<div class="item" style="cursor:default;display:block"><span class="pill Evil">Evil</span><b>The Eye of Sauron</b> is on <button class="link" data-pan="${eye}">${esc(T[eye].name)}</button> this turn<br><span style="color:var(--dim);font-size:14px">Good armies that start in it, pass through it or stop in it are revealed. In a battle there, Good has +1 Courage and Evil -1 Courage.</span></div>`;
   for (const r of rules) {
     const status = r.ok ? 'Ready now' : r.cooldown > 0 ? `Ready on turn ${S.turn + r.cooldown}` : `${r.declare} stage`;
+    if (r.key === 'stewards') {   // Denethor's Palantír: pick an Evil army to look at
+      const foes = S.armies.filter(a => a.side !== acting && a.status !== 'building' && a.loc);
+      const unseen = (a) => !(a.know && a.know[acting] && a.know[acting].leader && a.know[acting].units);
+      h += `<div class="item" style="cursor:default;display:block"><b>Denethor's Palantír</b><br><span style="color:var(--dim);font-size:14px">Stubbornness of Stewards: once per Logistics stage, Denethor looks at an Evil army and reveals it on a 2+.</span>
+        ${foes.length ? `<div class="row" style="margin-top:6px"><select id="evArmy" style="flex:1;min-width:0">${foes.sort((x, y) => unseen(y) - unseen(x)).map(a => opt(a.id, ((a.pub && a.pub[acting]) || a.name) + ' at ' + T[a.loc].name + (unseen(a) ? '' : ' (known)'))).join('')}</select><button class="gold" data-ev="rule~${acting}~stewards">Look (D6, 2+)</button></div>` : note('No Evil army on the board to look at.', true)}</div>`;
+      continue;
+    }
     if (r.key === 'eye') {   // the Eye needs a territory to look upon
       const opts = S.terr.map((t, i) => i + 1).sort((a, b) => T[a].name.localeCompare(T[b].name)).map(n => opt(n, T[n].name + (S.terr[n - 1].owner === 'Good' ? ' (Good)' : ''))).join('');
       h += `<div class="item" style="cursor:default;display:block"><b>${esc(r.name)}</b><br><span style="color:var(--dim);font-size:14px">${esc(r.text)}</span>
@@ -4460,7 +4467,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=3701c98620').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=1889941558').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4674,7 +4681,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=3701c98620').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=1889941558').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }

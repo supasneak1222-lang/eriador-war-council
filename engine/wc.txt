@@ -425,7 +425,7 @@ end
 function income(n)
   if S.terr[n].owner == "Neutral" then return 0 end
   if (S.terr[n].noIncome or 0) > 0 then return 0 end   -- pillaged or scorched
-  return BASE_INCOME + (S.terr[n].b.city and CITY_INCOME or 0) + industryBonus(n) + whiteCityBonus(n)
+  return BASE_INCOME + (S.terr[n].b.city and CITY_INCOME or 0) + industryBonus(n) + whiteCityBonus(n) + stewardsBonus(n)
 end
 
 function countBuildings(side, key)
@@ -1111,7 +1111,7 @@ POINT_CAP_BASE, POINT_CAP_CITY = 2000, 600
 function armyCap(side) return POINT_CAP_BASE + POINT_CAP_CITY * countBuildings(side, "city") end
 function armyPoints(side, except)
   local p = 0
-  for _, a in ipairs(S.armies) do if a.side == side and a ~= except and not a.fangorn then p = p + (a.upTo or a.size or 0) end end
+  for _, a in ipairs(S.armies) do if a.side == side and a ~= except and not a.fangorn and not a.freeCap then p = p + (a.upTo or a.size or 0) end end
   return p
 end
 function armyCount(side)
@@ -3387,11 +3387,11 @@ SPECIAL_RULES = {
   Gondor = {
     Good = {
       { key = "whitecity", name = "Splendor of the White City", auto = true, text = "Good's capital starts with Fortifications and a City, and its City gives +50 RP instead of +25. The capital's Fortifications don't protect West Osgiliath, but while West Osgiliath stands no enemy army or model can pass through the capital, whatever their special rules." },
-      { key = "stewards", name = "Stubbornness of Stewards", text = "Denethor and Aragorn can't both lead armies unless Boromir also leads one. Aragorn leading without Denethor: -1 Courage for his army. Denethor leading without Aragorn: once per Logistics stage he may scout any Evil army, revealing it on a 2+. All three leading: Good's capital produces double resources." },
+      { key = "stewards", name = "Stubbornness of Stewards", declare = "Logistics", text = "Denethor and Aragorn can't both lead armies unless Boromir also leads one. Aragorn leading without Denethor: -1 Courage for his army. Denethor leading without Aragorn: once per Logistics stage he may look into his Palantír at any Evil army, revealing it on a 2+. All three leading: Good's capital produces +25 RP a turn." },
       { key = "beacons", name = "The Beacons Are Lit", text = "Once per campaign, at the start of any stage while Denethor leads an army, Good may light the beacons: Denethor is replaced as leader for good, and at the start of the 3rd turn after, a 1000 point Kingdom of Rohan army appears next to Good's capital. Not allowed while the capital is in enemy hands or while Good holds East or West Osgiliath." },
     },
     Evil = {
-      { key = "hordes", name = "The Hordes of Mordor", text = "Legion of Mordor armies with no Monsters or named Heroes take 1 turn less to raise and cost 50 RP less." },
+      { key = "hordes", name = "The Hordes of Mordor", auto = true, text = "Evil starts the campaign with a free 600 point Legion of Mordor army, with no named Heroes and no Monsters, in its capital. It doesn't count against Evil's Point Cap." },
       { key = "corsairs", name = "The Corsairs of Umbar", text = "When an Umbar army finishes raising, Evil may move it at once to a territory next to the sea or the Anduin. Umbar armies treat territories next to the sea or the Anduin as if they had Roads." },
       { key = "eye", name = "The Eye of Sauron", declare = "Logistics", text = "At the start of the Logistics stage Evil may pick a territory: armies that start in it, pass through it or stop in it are revealed. In a battle there, the Good army has +1 Courage and the Evil army -1 Courage." },
     },
@@ -3596,6 +3596,16 @@ function rulesAtStart()
     if mm and not S.terr[mm].b.fort then S.terr[mm].b.fort = true; pieceHook("built", mm, "fort") end
     if mm then clog("Established Power: Minas Morgul begins with Fortifications.") end
   end
+  if hasRule("Evil", "hordes") then
+    local cap = S.settings.capEvil
+    local a = { id = newId(), side = "Evil", name = "The Hordes of Mordor", size = 600, leader = "", named = false, list = "Legion of Mordor",
+                merc = false, cavalry = false, canMarch = false, allied = false, units = "", loc = cap, status = "ready", freeCap = true,
+                buildLeft = 0, damage = 0, carried = 0, seenLeader = {}, seenUnits = {}, wounds = {} }
+    table.insert(S.armies, a)
+    numberArmy(a)
+    clog("The Hordes of Mordor: Evil begins with a free 600 point Legion of Mordor army (no named Heroes, no Monsters) at " .. tname(cap) .. ". It doesn't count against the Point Cap.", "Evil", "armies")
+    pieceHook("created", "army", a)
+  end
   if hasRule("Evil", "whitehand") then
     local cap = S.settings.capEvil
     local a = { id = newId(), side = "Evil", name = "Army of the White Hand", size = 400, leader = "", named = false, list = "",
@@ -3656,6 +3666,39 @@ function pillageBonusWhy(a)
   return table.concat(w, " and ")
 end
 
+-- ---------- Gondor: Stubbornness of Stewards ----------
+local function ledBy(side, word)
+  for _, a in ipairs(S.armies) do
+    if a.side == side and a.status ~= "building" and string.find(string.lower(a.leader or ""), word, 1, true) then return a end
+  end
+  return nil
+end
+-- Denethor leads and Aragorn doesn't: he may look into the Palantír
+function palantirReady()
+  return hasRule("Good", "stewards") and ledBy("Good", "denethor") ~= nil and ledBy("Good", "aragorn") == nil
+end
+-- Denethor, Aragorn and Boromir all lead: the capital produces +25 RP
+function stewardsBonus(n)
+  if n ~= S.settings.capGood or S.terr[n].owner ~= "Good" or not hasRule("Good", "stewards") then return 0 end
+  if ledBy("Good", "denethor") and ledBy("Good", "aragorn") and ledBy("Good", "boromir") then return 25 end
+  return 0
+end
+function palantirLook(a)
+  if not a or a.side ~= "Evil" then return "Pick an Evil army." end
+  S.palGood = S.turn
+  local pub = publicName(a)
+  local r = d6("Good", "Denethor's Palantír: " .. pub)
+  if r >= 2 then
+    a.seenLeader = a.seenLeader or {}; a.seenUnits = a.seenUnits or {}
+    a.seenLeader.Good = true; a.seenUnits.Good = true
+    clog("Denethor looks into the Palantír (" .. r .. "): " .. pub .. " is revealed as " .. a.name ..
+         ((a.leader and a.leader ~= "") and (", led by " .. a.leader) or "") .. ".", nil, "armies")
+  else
+    clog("Denethor looks into the Palantír (" .. r .. ") at " .. pub .. ", but sees nothing clearly.", nil, "armies")
+  end
+  return true
+end
+
 -- ---------- Gondor: The Eye of Sauron ----------
 function eyeOn(n) return S.eye and S.eye.t == S.turn and S.eye.n == n end
 function eyeReveal(a)
@@ -3702,6 +3745,10 @@ function canDeclare(side, key)
   local cd = ruleCooldown(side, key)
   if cd > 0 then return r.name .. " is ready again in " .. cd .. " turn" .. ((cd == 1) and "" or "s") .. " (turn " .. (S.turn + cd) .. ")." end
   if key == "palantir" and S.prio then return "Priority has already been rolled this turn." end
+  if key == "stewards" then
+    if not palantirReady() then return "Denethor must lead an army, and Aragorn must not." end
+    if S.palGood == S.turn then return "Denethor has already looked into the Palantír this Logistics stage." end
+  end
   if key == "eye" then
     if S.eye and S.eye.t == S.turn then return "The Eye is already on " .. tname(S.eye.n) .. " this turn." end
     if not logisticsUntouched() and not S.settings.override then return "It must be used at the start of the Logistics stage, before either player does anything." end
@@ -3713,9 +3760,14 @@ function canDeclare(side, key)
   return true
 end
 
-function declareRule(side, key, n)
+function declareRule(side, key, n, armyId)
   local ok = canDeclare(side, key)
   if ok ~= true then return ok end
+  if key == "stewards" then
+    local a = armyId and armyById(armyId)
+    if not a or a.side ~= "Evil" then return "Pick the Evil army Denethor looks at." end
+    return palantirLook(a)
+  end
   if key == "eye" and not (n and S.terr[n]) then return "Pick the territory the Eye looks upon." end
   local r = hasRule(side, key)
   S.ruleUsed = S.ruleUsed or {}
@@ -12192,7 +12244,7 @@ function uiRun(player, arg)
       end
     else u.confirm = "brestore"; keepConfirm = true end
   elseif a == "prio" then r = rollPriority(); say(pk, r)
-  elseif a == "rule" then r = declareRule(p1, p2, numOf(f.evEyeT)); say(pk, r, "Special rule used.")
+  elseif a == "rule" then r = declareRule(p1, p2, numOf(f.evEyeT), idOf(f.evArmy) or numOf(f.evArmy)); say(pk, r, "Special rule used.")
   elseif a == "evmerc" then
     r = hireMercs(p1, numOf(f.evMercT), { name = f.evMercName, leader = f.evMercLeader, list = f.evMercList, units = f.evMercUnits,
                                           named = f.evMercNamed == "True", cavalry = f.evMercCav == "True", canMarch = f.evMercMarch == "True", roster = u.pasteRoster })
