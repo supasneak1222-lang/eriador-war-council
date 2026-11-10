@@ -489,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=e020ed925b').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=fbfa1c240a').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -4511,7 +4511,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=e020ed925b').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=fbfa1c240a').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4726,7 +4726,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=e020ed925b').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=fbfa1c240a').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4825,15 +4825,91 @@ const FELL = { list: [] };
   const ROUTES = [{ c: [0.68, 0.2], r: [0.07, 0.075], w: 0.11, y: 10.5, a: 0 }, { c: [0.6, 0.285], r: [0.05, 0.07], w: -0.14, y: 9, a: 2.2 },
     { c: [0.77, 0.27], r: [0.06, 0.09], w: 0.09, y: 11.5, a: 4.1 }];
   let base; try { base = await loadModel('FellBeast', { size: 2.7, maxH: 10 }); } catch (e) { console.warn('Fell Beasts:', e); return; }
-  base.traverse((m) => { if (m.isMesh) { m.material = m.material.clone(); m.material.color.setScalar(2.2); m.material.roughness = 0.75; } });   // lift the dark hide so its shape reads in Mordor's gloom
+  // unpack the model's compressed positions into plain model space, so the wing hinges can be placed in the model's own measurements
+  const root = base.children[0]; root.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(root.matrixWorld).invert(), meshes = [];
+  root.traverse((m) => { if (m.isMesh) meshes.push(m); });
+  for (const m of meshes) {
+    const M = new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld), N3 = new THREE.Matrix3().getNormalMatrix(M);
+    const src = m.geometry, n = src.attributes.position.count, P = new Float32Array(n * 3), Nn = new Float32Array(n * 3), v = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+      v.fromBufferAttribute(src.attributes.position, i).applyMatrix4(M); P.set([v.x, v.y, v.z], i * 3);
+      if (src.attributes.normal) { v.fromBufferAttribute(src.attributes.normal, i).applyMatrix3(N3).normalize(); Nn.set([v.x, v.y, v.z], i * 3); }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+    if (src.attributes.normal) g.setAttribute('normal', new THREE.BufferAttribute(Nn, 3));
+    if (src.attributes.color) g.setAttribute('color', src.attributes.color);
+    if (src.index) g.setIndex(src.index);
+    if (!src.attributes.normal) g.computeVertexNormals();
+    fbSkinAttributes(g); m.geometry = g;
+    m.material = m.material.clone(); m.material.color.setScalar(2.2); m.material.roughness = 0.75;   // lift the dark hide so its shape reads in Mordor's gloom
+  }
   for (const R of ROUTES) {
-    const outer = new THREE.Group(), tilt = new THREE.Group(), body = base.clone(true);
+    const outer = new THREE.Group(), tilt = new THREE.Group(), body = new THREE.Group(), holder = new THREE.Group();
+    holder.position.copy(root.position); holder.quaternion.copy(root.quaternion); holder.scale.copy(root.scale); body.add(holder);
+    const bones = fbRig(meshes, holder);
     body.rotation.y = Math.atan2(65, 36);          // the model's head turned to face along its flight
     const lean = new THREE.Group(); lean.rotation.x = -0.28; lean.add(body);   // lift the drooping head level
     tilt.add(lean); outer.add(tilt); scene.add(outer);
-    FELL.list.push({ R, outer, tilt });
+    FELL.list.push({ R, outer, tilt, bones });
   }
 })();
+// ------------------------------------------------------------------ the Fell Beast's skeleton, built on the model when it loads
+// Measured on the model (its own units, Y up): the body runs along D from tail to head through C; L points out to its right side.
+const FB = { C: [-4, 18], D: [-0.8749, 0.4845], L: [0.4845, 0.8749] };
+const fbAt = (a, s, y) => new THREE.Vector3(FB.C[0] + FB.D[0] * a + FB.L[0] * s, y, FB.C[1] + FB.D[1] * a + FB.L[1] * s);
+// bones: [name, parent, along, side, height]
+const FB_BONES = [['root', -1, 0, -5, 44],
+  ['neck1', 0, 8, 0, 42], ['neck2', 1, 25, 2, 33], ['head', 2, 38, 3, 27],
+  ['tail1', 0, -30, -8, 36], ['tail2', 4, -34, -5, 18],
+  ['lwing1', 0, -10, -21, 48], ['lwing2', 6, -14, -38, 56],
+  ['rwing1', 0, -10, 4, 45], ['rwing2', 8, -14, 11, 55]];
+// how strongly each part of the body follows which bone: [bone, next bone, how far along between them]
+function fbSkin(p) {
+  const r = [p.x - FB.C[0], p.z - FB.C[1]], a = r[0] * FB.D[0] + r[1] * FB.D[1], s = r[0] * FB.L[0] + r[1] * FB.L[1], y = p.y;
+  const ss = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+  const back = ss(10, 0, a);                                         // the wings lie behind the neck
+  const wl = ss(-21, -29, s) * back, wr = ss(4, 9, s) * back;
+  if (wl > 0) return [[0, 6, wl], [6, 7, ss(-34, -42, s)]];         // left wing: shoulder, then elbow
+  if (wr > 0) return [[0, 8, wr], [8, 9, ss(9, 13, s)]];            // right wing (folded up)
+  if (a > 8 && s > -14) return [[0, 1, ss(8, 14, a)], [1, 2, ss(20, 28, a)], [2, 3, ss(33, 40, a)]];   // neck to head
+  if (a < -26 && y < 38 && s > -16) return [[0, 4, ss(-26, -30, a)], [4, 5, ss(30, 20, y)]];          // the hanging tail
+  return [];                                                          // the body and its rider
+}
+function fbSkinAttributes(geo) {
+  const pos = geo.attributes.position, n = pos.count, idx = new Uint16Array(n * 4), wt = new Float32Array(n * 4), v = new THREE.Vector3();
+  for (let i = 0; i < n; i++) {
+    v.fromBufferAttribute(pos, i);
+    let bone = 0;                                                    // walk down the chain: each step hands the vertex further along
+    for (const [, b, t] of fbSkin(v)) { if (t <= 0) break; if (t >= 1) { bone = b; continue; }
+      idx.set([bone, b, 0, 0], i * 4); wt.set([1 - t, t, 0, 0], i * 4); bone = -1; break; }
+    if (bone >= 0) { idx.set([bone, 0, 0, 0], i * 4); wt.set([1, 0, 0, 0], i * 4); }
+  }
+  geo.setAttribute('skinIndex', new THREE.BufferAttribute(idx, 4)); geo.setAttribute('skinWeight', new THREE.BufferAttribute(wt, 4));
+}
+function fbRig(parts, holder) {
+  const bones = FB_BONES.map(([name, , a, s, y]) => { const b = new THREE.Bone(); b.name = name; b.userData.at = fbAt(a, s, y); return b; });
+  FB_BONES.forEach(([, par], i) => { const b = bones[i], at = b.userData.at;
+    if (par < 0) { b.position.copy(at); holder.add(b); } else { b.position.copy(at).sub(bones[par].userData.at); bones[par].add(b); } });
+  holder.updateMatrixWorld(true);
+  const skel = new THREE.Skeleton(bones);
+  for (const m of parts) { const sm = new THREE.SkinnedMesh(m.geometry, m.material.clone()); sm.castShadow = true; sm.frustumCulled = false; holder.add(sm); holder.updateMatrixWorld(true); sm.bind(skel); }
+  return Object.fromEntries(bones.map((b) => [b.name, b]));
+}
+const FB_AXIS = new THREE.Vector3(FB.D[0], 0, FB.D[1]), FB_SIDE = new THREE.Vector3(FB.L[0], 0, FB.L[1]), FB_UP = new THREE.Vector3(0, 1, 0);
+const fbQ = new THREE.Quaternion(), fbQ2 = new THREE.Quaternion();
+function fbPose(B, t, seed) {
+  const beat = t * 2.3 + seed * 1.7, glide = 0.55 + 0.45 * Math.sin(t * 0.21 + seed);   // heavy, slow beats that ease off into glides
+  const up = (0.36 * Math.sin(beat) - 0.04) * glide, tip = (0.45 * Math.sin(beat - 0.7) - 0.05) * glide;   // the tips follow a moment behind
+  B.lwing1.quaternion.setFromAxisAngle(FB_AXIS, -up); B.lwing2.quaternion.setFromAxisAngle(FB_AXIS, -tip);
+  B.rwing1.quaternion.setFromAxisAngle(FB_AXIS, up); B.rwing2.quaternion.setFromAxisAngle(FB_AXIS, tip);
+  const sway = Math.sin(t * 0.8 + seed), nod = Math.sin(beat - 1.2) * glide;
+  for (const [k, f] of [['neck1', 0.6], ['neck2', 1], ['head', 1.3]])
+    B[k].quaternion.copy(fbQ.setFromAxisAngle(FB_UP, 0.07 * f * sway)).multiply(fbQ2.setFromAxisAngle(FB_SIDE, 0.04 * f * nod));
+  const swish = Math.sin(t * 0.9 + seed * 2);
+  B.tail1.quaternion.setFromAxisAngle(FB_AXIS, 0.12 * swish); B.tail2.quaternion.setFromAxisAngle(FB_AXIS, 0.2 * Math.sin(t * 0.9 + seed * 2 - 0.8));
+  B.root.position.y = B.root.userData.at.y - 1.2 * Math.cos(beat) * glide;   // the body lifts a little on each downstroke
+}
 function stepFellBeasts(dt, now) {
   if (!FELL.list.length) return;
   const t = (window.__wt ?? now / 1000);
@@ -4846,6 +4922,7 @@ function stepFellBeasts(dt, now) {
     f.outer.rotation.y = Math.atan2(du * BW, dv * BD);
     f.tilt.rotation.z = 0.32 * k + 0.05 * Math.sin(t * 1.3 + R.a);   // banking into the turn
     f.tilt.rotation.x = 0.06 * Math.sin(t * 0.9 + R.a);
+    fbPose(f.bones, t, R.a);
   }
 }
 (function initWaterLife() {
@@ -5455,7 +5532,7 @@ function wireOnline(el) {
 })();
 window.__net = NET;
 
-window.__app = { armyFile: (a) => armyFile(a), refresh: () => { refresh(); renderUI(); }, water: () => WSURF && { ships: WSURF.ships.map((s) => [+s.u.toFixed(3), +s.v.toFixed(3)]), mist: WSURF.mist.length }, startTour: () => startTour(), tourGo: (i) => tourGo(i), openSettings: (t) => openSettings(t), luaRun: (c) => luaRun(c, "dbg"), openDicePicker: (s) => openDicePicker(s), openFigPicker: (o) => openFigPicker(o), setFigure: (i, f) => setFigure(i, f), versusSplash: (n) => versusSplash(n, true), resultCeremony: (b) => resultCeremony(b), LEADERS: () => LEADERS, openBattle: (n) => openBattle(n), startAmbience: () => startAmbience(), uiSound: (k) => uiSound(k), ambienceTick: () => ambienceTick(), victoryScreen: () => victoryScreen(), AMB, armyHover: (a) => armyHover(a), historyHtml: (n) => historyHtml(n), fadeOwners: (c) => fadeOwners(c), turnCinematic: () => turnCinematic(), lootCart: (m) => lootCart(m), shots, syncRoads: () => { roadKey = ''; syncRoads(); }, showRoute: (p) => showRoute(p), pathTo: (a, b) => pathTo(a, b), drawWear: () => drawOverlay(), driving, syncScene, movePreview: (d, n) => movePreview(d, n), todoList: () => todoList(), startRecap: (x) => startRecap(x), battleAftermath: (b) => battleAftermath(b), captureSweep: (n, o) => captureSweep(n, o), keysHeld, onMove: (e) => onMove(e), draw: { start: (id) => startRouteDraw(S.agents.find(g => g.id === id)), add: (n) => drawAdd(n), close: () => drawClose(), finish: () => drawFinish(), state: () => routeDraw && { path: routeDraw.path, acts: routeDraw.acts } }, fx: () => ({ glow: GLOW.list.length, smoke: SMOKE.list.length, lasting: [...lasting.keys()] }), labelsShown: () => [...LABELS.values()].filter(e => e.style.display !== 'none').length, cards: async (id) => Promise.all(JSON.parse(luaCall('appCards', id)).map(c => cardURL(cardSrc(c)))), reachSize: () => reach ? reach.all.size : 0, openLedger, diceTop: () => shown.map(d => d.m.material[upFace(d.m.quaternion)].userData.v), holdInset: () => { insetUntil = Infinity; }, dice: () => ({ insetUntil, now: performance.now(), shown: shown.length, replay: !!replay, frame: !$('insetFrame').hidden }), select, renderUI, act: (a, f) => act(a, f), get S() { return S; }, things, camera, controls, toWorld, T, luaCall };
+window.__app = { fell: FELL, BW, BD, armyFile: (a) => armyFile(a), refresh: () => { refresh(); renderUI(); }, water: () => WSURF && { ships: WSURF.ships.map((s) => [+s.u.toFixed(3), +s.v.toFixed(3)]), mist: WSURF.mist.length }, startTour: () => startTour(), tourGo: (i) => tourGo(i), openSettings: (t) => openSettings(t), luaRun: (c) => luaRun(c, "dbg"), openDicePicker: (s) => openDicePicker(s), openFigPicker: (o) => openFigPicker(o), setFigure: (i, f) => setFigure(i, f), versusSplash: (n) => versusSplash(n, true), resultCeremony: (b) => resultCeremony(b), LEADERS: () => LEADERS, openBattle: (n) => openBattle(n), startAmbience: () => startAmbience(), uiSound: (k) => uiSound(k), ambienceTick: () => ambienceTick(), victoryScreen: () => victoryScreen(), AMB, armyHover: (a) => armyHover(a), historyHtml: (n) => historyHtml(n), fadeOwners: (c) => fadeOwners(c), turnCinematic: () => turnCinematic(), lootCart: (m) => lootCart(m), shots, syncRoads: () => { roadKey = ''; syncRoads(); }, showRoute: (p) => showRoute(p), pathTo: (a, b) => pathTo(a, b), drawWear: () => drawOverlay(), driving, syncScene, movePreview: (d, n) => movePreview(d, n), todoList: () => todoList(), startRecap: (x) => startRecap(x), battleAftermath: (b) => battleAftermath(b), captureSweep: (n, o) => captureSweep(n, o), keysHeld, onMove: (e) => onMove(e), draw: { start: (id) => startRouteDraw(S.agents.find(g => g.id === id)), add: (n) => drawAdd(n), close: () => drawClose(), finish: () => drawFinish(), state: () => routeDraw && { path: routeDraw.path, acts: routeDraw.acts } }, fx: () => ({ glow: GLOW.list.length, smoke: SMOKE.list.length, lasting: [...lasting.keys()] }), labelsShown: () => [...LABELS.values()].filter(e => e.style.display !== 'none').length, cards: async (id) => Promise.all(JSON.parse(luaCall('appCards', id)).map(c => cardURL(cardSrc(c)))), reachSize: () => reach ? reach.all.size : 0, openLedger, diceTop: () => shown.map(d => d.m.material[upFace(d.m.quaternion)].userData.v), holdInset: () => { insetUntil = Infinity; }, dice: () => ({ insetUntil, now: performance.now(), shown: shown.length, replay: !!replay, frame: !$('insetFrame').hidden }), select, renderUI, act: (a, f) => act(a, f), get S() { return S; }, things, camera, controls, toWorld, T, luaCall };
 </script>
 
 </body></html>
