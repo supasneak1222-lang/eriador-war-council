@@ -489,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=fbfa1c240a').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=a4a0c21ee9').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -4511,7 +4511,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=fbfa1c240a').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=a4a0c21ee9').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4726,7 +4726,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=fbfa1c240a').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=a4a0c21ee9').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4849,7 +4849,7 @@ const FELL = { list: [] };
     holder.position.copy(root.position); holder.quaternion.copy(root.quaternion); holder.scale.copy(root.scale); body.add(holder);
     const bones = fbRig(meshes, holder);
     body.rotation.y = Math.atan2(65, 36);          // the model's head turned to face along its flight
-    const lean = new THREE.Group(); lean.rotation.x = -0.28; lean.add(body);   // lift the drooping head level
+    const lean = new THREE.Group(); lean.rotation.x = -0.1; lean.add(body);   // level the body in flight
     tilt.add(lean); outer.add(tilt); scene.add(outer);
     FELL.list.push({ R, outer, tilt, bones });
   }
@@ -4898,16 +4898,20 @@ function fbRig(parts, holder) {
 }
 const FB_AXIS = new THREE.Vector3(FB.D[0], 0, FB.D[1]), FB_SIDE = new THREE.Vector3(FB.L[0], 0, FB.L[1]), FB_UP = new THREE.Vector3(0, 1, 0);
 const fbQ = new THREE.Quaternion(), fbQ2 = new THREE.Quaternion();
+// the model is posed perched; this rest pose opens it out for flight (radians, set under the wingbeat)
+const FB_REST = { rwing1: -1.25, rwing2: -0.7, lwing1: 0.6, lwing2: 0.55, neck1: -0.3, neck2: -0.15, tail1: 1.05, tail2: 0.35 };
 function fbPose(B, t, seed) {
   const beat = t * 2.3 + seed * 1.7, glide = 0.55 + 0.45 * Math.sin(t * 0.21 + seed);   // heavy, slow beats that ease off into glides
   const up = (0.36 * Math.sin(beat) - 0.04) * glide, tip = (0.45 * Math.sin(beat - 0.7) - 0.05) * glide;   // the tips follow a moment behind
-  B.lwing1.quaternion.setFromAxisAngle(FB_AXIS, -up); B.lwing2.quaternion.setFromAxisAngle(FB_AXIS, -tip);
-  B.rwing1.quaternion.setFromAxisAngle(FB_AXIS, up); B.rwing2.quaternion.setFromAxisAngle(FB_AXIS, tip);
+  const R = FB_REST;
+  B.lwing1.quaternion.setFromAxisAngle(FB_AXIS, R.lwing1 - up); B.lwing2.quaternion.setFromAxisAngle(FB_AXIS, R.lwing2 - tip);
+  B.rwing1.quaternion.setFromAxisAngle(FB_AXIS, R.rwing1 + up); B.rwing2.quaternion.setFromAxisAngle(FB_AXIS, R.rwing2 + tip);
   const sway = Math.sin(t * 0.8 + seed), nod = Math.sin(beat - 1.2) * glide;
   for (const [k, f] of [['neck1', 0.6], ['neck2', 1], ['head', 1.3]])
-    B[k].quaternion.copy(fbQ.setFromAxisAngle(FB_UP, 0.07 * f * sway)).multiply(fbQ2.setFromAxisAngle(FB_SIDE, 0.04 * f * nod));
+    B[k].quaternion.copy(fbQ.setFromAxisAngle(FB_UP, 0.07 * f * sway)).multiply(fbQ2.setFromAxisAngle(FB_SIDE, (R[k] || 0) + 0.04 * f * nod));
   const swish = Math.sin(t * 0.9 + seed * 2);
-  B.tail1.quaternion.setFromAxisAngle(FB_AXIS, 0.12 * swish); B.tail2.quaternion.setFromAxisAngle(FB_AXIS, 0.2 * Math.sin(t * 0.9 + seed * 2 - 0.8));
+  B.tail1.quaternion.copy(fbQ.setFromAxisAngle(FB_SIDE, R.tail1)).multiply(fbQ2.setFromAxisAngle(FB_UP, 0.12 * swish));   // trailing behind, swishing side to side
+  B.tail2.quaternion.copy(fbQ.setFromAxisAngle(FB_SIDE, R.tail2)).multiply(fbQ2.setFromAxisAngle(FB_UP, 0.2 * Math.sin(t * 0.9 + seed * 2 - 0.8)));
   B.root.position.y = B.root.userData.at.y - 1.2 * Math.cos(beat) * glide;   // the body lifts a little on each downstroke
 }
 function stepFellBeasts(dt, now) {
