@@ -745,6 +745,7 @@ function setOwner(n, owner, why)
   local old = t.owner
   t.owner = owner
   t.conq = nil
+  if old == "Good" then S.goodLost = S.goodLost or {}; S.goodLost[tostring(n)] = S.turn end   -- Forth Eorlingas!
   if why == "conquered" then pcall(eventConquered, n, owner); pcall(theatreConquered, n, owner) end
   if t.sow and why == "conquered" then
     clog("The discontent in " .. tname(n) .. " has passed.", nil, "territories")
@@ -4014,6 +4015,62 @@ function northConquered(n, owner)
     pieceHook("created", "army", a)
     clog("Alliances Renewed! Elves, Men and Dwarves stand together once more: a free 600 point Battle of the Five Armies army gathers at " .. tname(at) .. ".", nil, "armies")
   end
+end
+-- Rohan: Tongue of a Worm. Once each Logistics stage Evil may whisper against a Good army led by a Hero of Legend.
+function wormWhy(a)
+  if not hasRule("Evil", "wormtongue") then return "Tongue of a Worm is an Evil special rule of the Rohan theatre." end
+  if not a or a.side ~= "Good" then return "Choose a Good army." end
+  if a.status == "building" then return a.name .. " is still being raised." end
+  if (a.leader or "") == "" then return a.name .. " has no leader to whisper to." end
+  if STAGES[S.stage] ~= "Logistics" and not S.settings.override then return "Tongue of a Worm is used in the Logistics stage." end
+  if S.wormT == S.turn and not S.settings.override then return "Tongue of a Worm has already been used this turn." end
+  if a.moved and not S.settings.override then return a.name .. " has already moved this turn." end
+  if a.noMoveTurn == S.turn then return a.name .. " already can't move this turn." end
+  return nil
+end
+function wormtongue(a)
+  local why = wormWhy(a); if why then return why end
+  S.wormT = S.turn
+  local r = d6("Evil", "Tongue of a Worm")
+  if r >= 3 then
+    a.noMoveTurn, a.noMoveWhy = S.turn, "Tongue of a Worm has poisoned its leader's counsel"
+    clog("Tongue of a Worm (Evil rolled " .. r .. "): " .. pubName(a) .. " hesitates and cannot move this turn, unless forced to retreat.", nil, "armies")
+  else
+    clog("Tongue of a Worm (Evil rolled " .. r .. "): " .. pubName(a) .. " pays the whispers no heed.", nil, "armies")
+  end
+  return true
+end
+-- Rohan: Forth Eorlingas! Once per campaign, after Good loses a territory, a free 600 point Kingdom of Rohan army rides out
+-- in a Good territory next to one that was lost (and is still out of Good's hands).
+function eorlWhy(n)
+  n = tonumber(n)
+  if not hasRule("Good", "eorlingas") then return "Forth Eorlingas! is a Good special rule of the Rohan theatre." end
+  if S.eorlDone then return "Forth Eorlingas! has already been used." end
+  if not n or not S.terr[n] or S.terr[n].owner ~= "Good" then return "Choose a territory Good holds." end
+  local lost = false
+  for m, _ in pairs(S.goodLost or {}) do
+    m = tonumber(m)
+    if S.terr[m] and S.terr[m].owner ~= "Good" then for _, x in ipairs(ADJ[n] or {}) do if x == m then lost = true end end end
+  end
+  if not lost then return "Only once Good has lost a territory, and only next to a territory it lost." end
+  return nil
+end
+function eorlAvailable()
+  if not hasRule("Good", "eorlingas") or S.eorlDone then return false end
+  for n, t in ipairs(S.terr) do if t.owner == "Good" and eorlWhy(n) == nil then return true end end
+  return false
+end
+function eorlingas(n)
+  local why = eorlWhy(n); if why then return why end
+  n = tonumber(n)
+  local a = { id = newId(), side = "Good", name = "Riders of the Mark", size = 600, leader = "Captain of Rohan", named = false, list = "Kingdom of Rohan",
+              merc = false, cavalry = false, canMarch = false, allied = false, units = "", loc = n, status = "ready", eorlingas = true,
+              buildLeft = 0, damage = 0, carried = 0, seenLeader = {}, seenUnits = {}, wounds = {} }
+  table.insert(S.armies, a); numberArmy(a)
+  S.eorlDone = true
+  pieceHook("created", "army", a)
+  clog("Forth Eorlingas! A free 600 point Kingdom of Rohan army rides out at " .. tname(n) .. ", ready at once. It takes no Heroes but a Captain of Rohan.", nil, "armies")
+  return true
 end
 -- I'm a Burglar: Bilbo's army is never forced to fight
 function bilboLed(a) return a and string.find(string.lower(a.leader or ""), "bilbo", 1, true) ~= nil end
@@ -12809,6 +12866,8 @@ function uiRun(player, arg)
     say(pk, r, "Mercenaries hired.")
   elseif a == "evtroll" then r = raidTrollHoard(p1); say(pk, r, "The hoard was raided.")
   elseif a == "evark" then r = takeArkenstone(p1); say(pk, r, "The Arkenstone is taken.")
+  elseif a == "worm" then r = wormtongue(armyById(numOf(p1))); say(pk, r, "The whispers are spoken.")
+  elseif a == "eorl" then r = eorlingas(numOf(p1)); say(pk, r, "Forth Eorlingas!")
   elseif a == "mercsend" then r = mercSend(armyById(numOf(p1))); say(pk, r, "Sent off as mercenaries.")
   elseif a == "ereborup" then r = ereborUpgrade(p2 or side, numOf(p1)); say(pk, r, "Erebor's upgrade has begun.")
   elseif a == "evno" then r = declineEvent(p1); say(pk, r, "Done.")

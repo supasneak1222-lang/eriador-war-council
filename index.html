@@ -489,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=e40575d70f').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=8e0a31dcc1').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -2092,6 +2092,9 @@ function terrCard(n) {
     if (I.fortUp) { const F = I.fortUp;
       h += `<h3>Fortress</h3><div class="grid2"><button ${F.room > 0 ? '' : 'disabled'} data-act="build~${n}~fortup" title="${esc(F.room > 0 ? F.rules : 'No upgrade possible: ' + F.why + '.')}">Fortress Upgrade<small>${F.cost} RP · ${F.turns} turns · garrison ${F.garrison}${F.room > 0 ? ' → ' + (F.garrison + 200) : ''} pts</small></button></div>`;
       if (F.room <= 0) h += note(`No upgrade now: ${F.why}.`); }
+    if (I.eorl !== undefined && acting === 'Good') {   // Forth Eorlingas!
+      h += `<h3>Forth Eorlingas!${ruleLink('specials')}</h3><div class="grid2"><button class="gold" ${I.eorl ? 'disabled' : ''} data-act="eorl~${n}" title="${esc(I.eorl || 'Once per campaign: a free 600 point Kingdom of Rohan army, ready at once. No Heroes but a Captain of Rohan.')}">Raise the Riders of the Mark<small>free · 600 pts · ready now</small></button></div>`;
+      if (I.eorl) h += note(I.eorl); }
     if (I.ereborUp) { const E = I.ereborUp;   // The Riches of Erebor
       h += `<h3>The Riches of Erebor · ${E.level} of 3</h3><div class="grid2"><button ${E.room > 0 ? '' : 'disabled'} data-act="ereborup~${n}" title="${esc(E.room > 0 ? E.rules : 'No upgrade possible: ' + E.why + '.')}">Upgrade Erebor<small>${E.cost} RP · ${E.turns} turns · City +${E.income}${E.room > 0 ? ' → +' + (E.income + 50) : ''} RP · counts as a City</small></button></div>`;
       if (E.room <= 0) h += note(`No upgrade now: ${E.why}.`); }
@@ -2247,6 +2250,12 @@ function showCard(id, i) {
   v.querySelectorAll('[data-cv]').forEach(b => b.onclick = (e) => { e.stopPropagation(); showCard(id, +b.dataset.cv); });
   v.onclick = (e) => { if (e.target === v) v.hidden = true; };
 }
+// Rohan, Tongue of a Worm: Evil whispers against a Good army (shown on the enemy army's card)
+function wormBlock(a) {
+  if (a.wormWhy === undefined || acting !== 'Evil' || a.status === 'building') return '';
+  return `<h3>Tongue of a Worm${ruleLink('specials')}</h3><div class="row"><button class="gold" ${a.wormWhy ? 'disabled' : ''} data-act="worm~${a.id}" title="${esc(a.wormWhy || 'Roll a D6: on a 3+ this army cannot move this turn, unless forced to retreat. Once per turn, in the Logistics stage.')}">Whisper to its leader</button></div>`
+    + note(a.wormWhy || 'Use only on an army led by a Hero of Legend. On a 3+ it cannot move this turn, unless forced to retreat.');
+}
 function armyCard(a) {
   if (!canSee(a.side)) {
     const k = (a.know && a.know[acting]) || {};
@@ -2254,7 +2263,7 @@ function armyCard(a) {
       <div class="kv"><span>Where</span><span>${esc(tname(a.loc))}</span><span>Size</span><span>${sizeKnown(a) ? (a.tablePts ? a.tablePts + ' pts (an 800 pt army in every rule)' : a.size + ' pts') : 'unknown'}${k.units && a.cavalry ? ' · cavalry' : ''}</span>
       <span>Leader</span><span>${k.leader ? esc(a.leader || 'no named leader') : 'unknown'}</span>
       ${k.units ? `<span>List</span><span>${esc(a.list || '—')}</span><span>Strength</span><span>${a.damage ? '−' + a.damage + '%' : 'full'}</span>${a.units ? `<span>Units</span><span style="font-size:14px">${esc(a.units)}</span>` : ''}` : ''}</div>
-      ${k.units ? cardsBlock(a) : ''}${note(k.units ? 'Your scouts know what this army contains.' : k.leader ? 'Your scouts have seen its leader, but not what it contains.' : 'An enemy army: send a Scout to learn more.')}`;
+      ${k.units ? cardsBlock(a) : ''}${note(k.units ? 'Your scouts know what this army contains.' : k.leader ? 'Your scouts have seen its leader, but not what it contains.' : 'An enemy army: send a Scout to learn more.')}${wormBlock(a)}`;
   }
   const X = JSON.parse(luaCall('appArmy', a.id)), I = JSON.parse(luaCall('appArmyInfo', a.id)), stg = S.stageName;
   const status = [a.status === 'building' && `being raised, ${a.buildLeft} turn${a.buildLeft === 1 ? '' : 's'} left`, a.needsRetreat && 'must retreat', I.outOfSupplies && 'OUT OF SUPPLIES',
@@ -4635,7 +4644,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=e40575d70f').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=8e0a31dcc1').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4850,7 +4859,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=e40575d70f').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=8e0a31dcc1').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }

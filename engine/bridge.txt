@@ -95,6 +95,7 @@ function appState()
     for k, v in pairs(a) do c[k] = v end
     c.pub = { Good = aname(a, "Good"), Evil = aname(a, "Evil") }
     if isEasterling(a) and hasRule("Evil", "finestmerc") then c.mercWhy = mercSendWhy(a) or false end   -- The Finest Mercenaries
+    if a.side == "Good" and hasRule("Evil", "wormtongue") then c.wormWhy = wormWhy(a) or false end   -- Tongue of a Worm
     c.know = {}
     for _, sd in ipairs(SIDES) do
       local tower = (sd ~= a.side) and a.status ~= "building" and towerSees(sd, a.loc) or false
@@ -302,6 +303,8 @@ function appTerrInfo(n, viewer)
   for _, x in ipairs(BUILDINGS) do b[#b + 1] = { key = x.key, name = x.name, cost = x.cost, turns = buildTurns(side, x.key), rules = x.rules, desc = x.desc } end
   local room, why = fortUpRoom(n)
   local fortUp = t.b.fort and { level = t.fortup or 0, garrison = garrisonSize(n), room = room, why = why, cost = FORT_UP.cost, turns = FORT_UP.turns, rules = FORT_UP.rules } or nil
+  local eorlState = nil   -- Forth Eorlingas!: false when it can be raised here, else why not
+  if hasRule("Good", "eorlingas") and not S.eorlDone and t.owner == "Good" then eorlState = eorlWhy(n) or false end
   local eRoom, eWhy = ereborUpRoom(n, side)
   local ereborUp = (hasRule("Good", "erebor") and n == terrByName(NORTH.erebor) and t.b.city) and { level = t.ereborUp or 0, room = eRoom, why = eWhy, cost = EREBOR_UP.cost,
     turns = EREBOR_UP.turns, rules = EREBOR_UP.rules, income = CITY_INCOME + 50 * (t.ereborUp or 0) } or nil
@@ -309,7 +312,7 @@ function appTerrInfo(n, viewer)
   for _, x in ipairs(t.q or {}) do local d = BUILDING_BY_KEY[x.key]; q[#q + 1] = { key = x.key, left = x.left, total = x.total or d.turns, halt = x.halt } end
   return JSON.encode({ conquer = conquestNeed(n), shield = sh, shieldName = sh and NAMES[sh] or nil, shields = shields, nearFort = nearFort,
                        borders = ADJ[n] or {}, capital = (n == S.settings.capGood) and "Good" or ((n == S.settings.capEvil) and "Evil" or nil),
-                       buildings = b, q = q, full = buildingCount(n) >= MAX_BUILDINGS, fortUp = fortUp, ereborUp = ereborUp,
+                       buildings = b, q = q, full = buildingCount(n) >= MAX_BUILDINGS, fortUp = fortUp, ereborUp = ereborUp, eorl = eorlState,
                        siege = t.siegeT and { by = OTHER[t.owner], since = t.siegeT, ready = siegeReady(n), relief = reliefBattle(n) } or nil })
 end
 
