@@ -489,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=c9e724f9ab').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=1f08224cf6').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -690,7 +690,7 @@ function throwDiceAsync(specs) { return new Promise(res => { throwDice(specs, nu
 // each theatre has its own board: the campaign kept in this browser says which one to set out
 let BOOT_TH = 'Eriador';
 try { const sv = (/"guest"/.test(localStorage.getItem('eriador.net') || '') && localStorage.getItem('eriador.online')) || localStorage.getItem(SAVE_KEY); if (sv) BOOT_TH = ((JSON.parse(sv) || {}).settings || {}).theatre || 'Eriador'; } catch (e) {}
-const MAP_KEY = (BOOT_TH === 'Rohan' || BOOT_TH === 'Gondor') ? BOOT_TH : 'Eriador', ASSET = MAP_KEY === 'Eriador' ? '' : MAP_KEY.toLowerCase() + '/';
+const MAP_KEY = (BOOT_TH === 'Rohan' || BOOT_TH === 'Gondor' || BOOT_TH === 'North') ? BOOT_TH : 'Eriador', ASSET = MAP_KEY === 'Eriador' ? '' : MAP_KEY.toLowerCase() + '/';
 const DRESS = !/nodress/.test(location.search);   // painted territories and table dressing
 const MAP = await fetch(ASSET + 'map.json').then(r => r.json()); tick();
 const T = MAP.terr;
@@ -2977,13 +2977,13 @@ async function download(name, text, type = 'application/json') {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
-const RULE_PAGES_ALL = { turn: 8, armies: 9, battles: 12, movement: 11, agents: 14, resources: 15, buildings: 16, conquest: 17, actions: 17, specials: 18, events: 25, campaigns: 3, map: 5, theatre: 3, scenario: 33 };
+const RULE_PAGES_ALL = { turn: 9, armies: 10, battles: 13, movement: 12, agents: 15, resources: 16, buildings: 17, conquest: 18, actions: 18, specials: 19, events: 26, campaigns: 3, map: 5, theatre: 3, scenario: 34 };
 // some pages belong to the theatre being played
-const RULE_PAGES_BY = { Rohan: { specials: 19, events: 27, map: 6, theatre: 20 }, Gondor: { specials: 21, events: 29, map: 7, theatre: 22 }, North: { specials: 23, events: 31, theatre: 24 } };
+const RULE_PAGES_BY = { Rohan: { specials: 20, events: 28, map: 6, theatre: 21 }, Gondor: { specials: 22, events: 30, map: 7, theatre: 23 }, North: { specials: 24, events: 32, map: 8, theatre: 25 } };
 const RULE_PAGES = new Proxy(RULE_PAGES_ALL, { get: (o, k) => ((RULE_PAGES_BY[(typeof S !== 'undefined' && S && S.settings && S.settings.theatre) || 'Eriador'] || {})[k]) || o[k] });
 
 // The rulebook opens inside the page: the hosted page can't open new tabs, so every rules link lands here.
-const RULE_N = 33;
+const RULE_N = 34;
 function openRulebook(page = 1) {
   const el = $('rulebook');
   if (!el.dataset.built) {
@@ -3031,7 +3031,7 @@ function renderSettings() {
     if (Object.keys(LANDMARKS).length) h += `<div class="setrow"><span>Landmarks<small>Move, turn, size and set the ground under this map's landmarks · saved in this browser</small></span><button data-lmopen>Adjust</button></div>`;
     h += `<div class="setrow"><span>Credits<small>Minas Tirith: a scan of the city by PapaH (from a Sketchfab scan), CC BY-NC. Barad-dûr, Minas Morgul, Helm's Deep and the Golden Hall: models by Zajic73, used with permission. Orthanc: by 3DMN, CC BY-NC. Nazgûl on Fell Beast: by Cadel, used with permission. All coloured for the board. Ships: Tabletop Simulator models.</small></span></div>`;
     h += `<div class="setrow"><span>Who throws the dice<small>The War Council throws them for you, or each player throws their own in the tray</small></span><span class="seg2" style="flex-direction:column;align-items:flex-end">${['Good', 'Evil'].map(sd => `<span class="seg2"><b style="font-weight:600;margin-right:6px">${sd}</b>${[['auto', 'War Council'], ['player', 'Player']].map(([k, l]) => `<button class="${((st.diceBy || {})[sd] || 'auto') === k ? 'on' : ''}" data-sa="diceby~${sd}~${k}">${l}</button>`).join('')}</span>`).join('')}</span></div>`;
-    h += `<div class="setrow"><span>Theatre<small>${esc(theatreInfo())}</small></span><span class="seg2">${['Eriador', 'Rohan', 'Gondor'].map(t => `<button class="${(st.theatre || 'Eriador') === t ? 'on' : ''}" data-sa="theatre~${t}">${t}</button>`).join('')}</span></div>`;
+    h += `<div class="setrow"><span>Theatre<small>${esc(theatreInfo())}</small></span><span class="seg2">${['Eriador', 'Rohan', 'Gondor', 'North'].map(t => `<button class="${(st.theatre || 'Eriador') === t ? 'on' : ''}" data-sa="theatre~${t}">${t}</button>`).join('')}</span></div>`;
     h += sw(st.hoverInfo !== false, 'hovertog', 'Map hover info', 'What is in a territory when the pointer is over it');
     h += sw(st.roadLines !== false, 'roadtog', 'Roads on the map', 'Built roads drawn along the map\'s roads');
     h += sw(st.override, 'override', 'Rule override', 'For fixing mistakes: ignores stage, range and cost checks, and lets you set owners and stockpiles');
@@ -3069,7 +3069,7 @@ function renderSettings() {
       h += `<h3>End of the campaign</h3>` + (S.winner ? `<div class="row"><span>${esc(S.winner)} has won.</span><button data-c="unend">Take it back</button><button data-c="summary">Campaign summary</button></div>`
         : `<div class="row"><button class="good" data-twice2="endwar~Good">Declare Good the victor</button><button class="evil" data-twice2="endwar~Evil">Declare Evil the victor</button><button data-c="summary">Campaign summary</button></div>`);
     }
-    h += `<h3>Start a new campaign</h3><div class="form"><div class="row"><label>Theatre <select id="nTheatre">${['Eriador', 'Rohan', 'Gondor'].map(t => opt(t, t, (st.theatre || 'Eriador') === t)).join('')}</select></label>
+    h += `<h3>Start a new campaign</h3><div class="form"><div class="row"><label>Theatre <select id="nTheatre">${['Eriador', 'Rohan', 'Gondor', 'North'].map(t => opt(t, t, (st.theatre || 'Eriador') === t)).join('')}</select></label>
       <label>Starting RP <input id="nRP" type="number" value="${st.startRP || 400}" style="width:90px"></label></div>
       <div class="row"><label>Good capital <select id="nCapG">${capOpts(st.theatre || 'Eriador', st.capGood)}</select></label></div><div class="row"><label>Evil capital <select id="nCapE">${capOpts(st.theatre || 'Eriador', st.capEvil)}</select></label></div>
       <div class="row"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="nTour" ${tourWanted() ? 'checked' : ''}> Show the tour of the War Council once the campaign starts</label></div>
@@ -3088,7 +3088,7 @@ function renderSettings() {
   const el = $('setBody'); el.innerHTML = h; wireOnline(el);
   if ($('tourBtn')) $('tourBtn').onclick = () => { closeSettings(); startTour(); };
   const nth = $('nTheatre');
-  if (nth) nth.onchange = () => { const th = nth.value, m = (S.theatreMaps || {})[(th === 'Rohan' || th === 'Gondor') ? th : 'Eriador'] || {}; $('nCapG').innerHTML = capOpts(th, m.capGood); $('nCapE').innerHTML = capOpts(th, m.capEvil); };
+  if (nth) nth.onchange = () => { const th = nth.value, m = (S.theatreMaps || {})[(th === 'Rohan' || th === 'Gondor' || th === 'North') ? th : 'Eriador'] || {}; $('nCapG').innerHTML = capOpts(th, m.capGood); $('nCapE').innerHTML = capOpts(th, m.capEvil); };
   const oc = $('openChron'); if (oc) oc.onclick = () => { chronicleOn = true; lsSet('eriador.chronicleOn', '1'); writeChronicle(); };
   el.querySelectorAll('[data-lmopen]').forEach(b => b.onclick = () => { $('settings').hidden = true; openLandmarks(); });
   el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => {
@@ -3124,7 +3124,7 @@ function renderSettings() {
       const wantTour = $('nTour') ? $('nTour').checked : false;
       try { localStorage.setItem('eriador.tourOff', wantTour ? '' : '1'); if (wantTour) localStorage.setItem('eriador.tour', '1'); else localStorage.removeItem('eriador.tour'); } catch (e) {}
       act('start', f, true); act('start', f); closeSettings();
-      try { for (const k of ['eriador.wear', 'eriador.wear.Rohan', 'eriador.wear.Gondor']) localStorage.removeItem(k); } catch (e) {} wear = {}; drawOverlay();   // a new campaign starts with unworn roads
+      try { for (const k of ['eriador.wear', 'eriador.wear.Rohan', 'eriador.wear.Gondor', 'eriador.wear.North']) localStorage.removeItem(k); } catch (e) {} wear = {}; drawOverlay();   // a new campaign starts with unworn roads
       if (wantTour) setTimeout(() => { if (!mapCheck.going) startTour(); }, 900);   // a new theatre reloads the page first; the tour opens after
     } else { act(k, null, true); act(k); renderSettings(); }
   });
@@ -3148,7 +3148,7 @@ function renderSettings() {
 function closeSettings() { $('settings').hidden = true; }
 // territory choices for a theatre's map (the new-campaign form can pick a theatre with another board)
 function capOpts(th, sel) {
-  const key = (th === 'Rohan' || th === 'Gondor') ? th : 'Eriador', m = (S.theatreMaps || {})[key];
+  const key = (th === 'Rohan' || th === 'Gondor' || th === 'North') ? th : 'Eriador', m = (S.theatreMaps || {})[key];
   const names = (key === S.mapKey || !m) ? Object.keys(T).map(n => T[n].name) : m.names;
   return names.map((nm, i) => opt((i + 1) + ' · ' + nm, (i + 1) + ' · ' + nm, i + 1 === +sel)).join('');
 }
@@ -4627,13 +4627,13 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=c9e724f9ab').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=1f08224cf6').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
 const knownToEnemy = (a) => !S.settings.hidden || !!(a.seenLeader && a.seenLeader[OTHER_OF[a.side]]);
 // an army whose leader is hidden shows its theatre's captain
-const THEATRE_CAPTAIN = { Gondor: { Good: 'captain_of_minas_tirith', Evil: 'morannon_orc_captain' }, Rohan: { Good: 'captain_of_rohan', Evil: 'uruk_hai_captain' } }[MAP_KEY] || {};
+const THEATRE_CAPTAIN = { Gondor: { Good: 'captain_of_minas_tirith', Evil: 'morannon_orc_captain' }, Rohan: { Good: 'captain_of_rohan', Evil: 'uruk_hai_captain' }, North: { Good: 'erebor_dwarf_captain', Evil: 'easterling_captain' } }[MAP_KEY] || {};
 function armyFile(a) {
   if (a.figure && LEADER_BY.has(a.figure) && knownToEnemy(a)) return 'leaders/' + a.figure;
   const cap = THEATRE_CAPTAIN[a.side]; if (cap && LEADER_BY.has(cap) && !window.__plainArmies) return 'leaders/' + cap;
@@ -4842,7 +4842,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=c9e724f9ab').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=1f08224cf6').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4932,7 +4932,7 @@ addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; cam
 const ease = (t) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 // ------------------------------------------------------------------ life on the water: river mist, and ships that sail about slowly
 const SHIP_SPAWNS = { Eriador: [['gondor', 0.06, 0.585], ['gondor', 0.11, 0.55]],
-  Gondor: [['gondor', 0.3, 0.8], ['gondor', 0.38, 0.73], ['corsair', 0.2, 0.86], ['corsair', 0.12, 0.72]], Rohan: [] };
+  Gondor: [['gondor', 0.3, 0.8], ['gondor', 0.38, 0.73], ['corsair', 0.2, 0.86], ['corsair', 0.12, 0.72]], Rohan: [], North: [] };
 // ------------------------------------------------------------------ Nazgûl on their Fell Beasts, circling over Mordor (Gondor theatre)
 const FELL = { list: [] };
 (async function initFellBeasts() {

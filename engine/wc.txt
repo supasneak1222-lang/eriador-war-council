@@ -144,6 +144,51 @@ THEATRE_MAPS = {
   },
   start = { [5] = "Good", [9] = "Good", [10] = "Good", [11] = "Good", [12] = "Good", [13] = "Good", [14] = "Good", [15] = "Good", [16] = "Good", [17] = "Good", [18] = "Good", [21] = "Good", [24] = "Evil", [25] = "Evil", [31] = "Evil", [32] = "Evil", [33] = "Evil", [34] = "Evil", [35] = "Evil", [36] = "Evil", [37] = "Evil", [38] = "Evil", [39] = "Evil", [40] = "Evil" }, capGood = 17, capEvil = 34,
   water = { [2] = { { 5, 0 } }, [5] = { { 2, 0 }, { 6, 0 } }, [6] = { { 5, 0 }, { 8, 0 } }, [8] = { { 6, 0 }, { 11, 0 } }, [11] = { { 8, 0 }, { 13, 0 } }, [13] = { { 11, 0 }, { 16, 0 } }, [15] = { { 16, 0 }, { 18, 0 }, { 26, 1 } }, [16] = { { 13, 0 }, { 15, 0 }, { 26, 1 }, { 27, 1 }, { 29, 1 } }, [18] = { { 15, 0 }, { 21, 0 }, { 24, 1 }, { 26, 1 } }, [21] = { { 18, 0 }, { 23, 1 }, { 24, 1 } }, [23] = { { 21, 1 }, { 24, 0 } }, [24] = { { 18, 1 }, { 21, 1 }, { 23, 0 }, { 26, 0 } }, [26] = { { 15, 1 }, { 16, 1 }, { 18, 1 }, { 24, 0 }, { 27, 0 }, { 29, 0 } }, [27] = { { 16, 1 }, { 26, 0 }, { 29, 0 } }, [29] = { { 16, 1 }, { 26, 0 }, { 27, 0 }, { 30, 0 } }, [30] = { { 29, 0 } } } },
+  North = { names = { "Gundabad", "Eagles' Eyrie", "The Carrock", "Goblin-town", "Gladden Fields", "Dimrill Dale", "Lothlórien", "Sources of the Anduin", "Grey Mountain Narrows", "Withered Heath", "Beorn's Hall", "Old Ford", "Woodmen-town", "Rhosgobel", "Northern Mirkwood", "Enchanted River", "Thranduil's Halls", "Emyn Duir", "Old Forest Road", "Eastern Mirkwood", "Narrows of the Forest", "Dol Guldur", "Southern Mirkwood", "Erebor", "Dale", "Esgaroth", "The Iron Road", "Iron Hills", "Carnen Vale", "River Running", "Long Marshes", "East Bight", "Rhovanion", "Dorwinion", "Rhûn", "Mistrand", "Shores of Rhûn", "Brown Lands", "Emyn Muil", "Dagorlad" },
+  adj = {
+  { 2, 8 },
+  { 1, 3, 4, 8 },
+  { 2, 4, 11 },
+  { 2, 3, 5, 12 },
+  { 4, 6 },
+  { 5, 7 },
+  { 6 },
+  { 1, 2, 9, 11, 15 },
+  { 8, 15, 16 },
+  { 16, 17, 24, 27 },
+  { 3, 8, 12, 15, 19 },
+  { 4, 11, 13, 19 },
+  { 12, 14, 19 },
+  { 13, 19, 21, 22 },
+  { 8, 9, 11, 16, 18, 19 },
+  { 9, 10, 15, 17, 18, 20 },
+  { 10, 16, 20, 24, 26 },
+  { 15, 16, 19, 20 },
+  { 11, 12, 13, 14, 15, 18, 20, 21 },
+  { 16, 17, 18, 19, 21, 26, 31, 32 },
+  { 14, 19, 20, 22, 23, 32 },
+  { 14, 21, 23, 39 },
+  { 21, 22, 32, 38, 39 },
+  { 10, 17, 25, 26, 27 },
+  { 24, 26, 27, 29, 30 },
+  { 17, 20, 24, 25, 30, 31 },
+  { 10, 24, 25, 28, 29 },
+  { 27, 29, 35 },
+  { 25, 27, 28, 30, 35 },
+  { 25, 26, 29, 31, 33, 34, 35 },
+  { 20, 26, 30, 32, 33 },
+  { 20, 21, 23, 31, 33, 38 },
+  { 30, 31, 32, 34, 38, 40 },
+  { 30, 33, 35, 37, 40 },
+  { 28, 29, 30, 34, 36 },
+  { 35, 37 },
+  { 34, 36, 40 },
+  { 23, 32, 33, 39, 40 },
+  { 22, 23, 38 },
+  { 33, 34, 37, 38 }
+  },
+  start = { [1] = "Evil", [8] = "Evil", [22] = "Evil", [23] = "Evil", [24] = "Good", [26] = "Good", [35] = "Evil", [36] = "Evil" }, capGood = 24, capEvil = 22,
+  water = { [1] = { { 2, 0 }, { 8, 1 } }, [2] = { { 1, 0 }, { 3, 0 }, { 8, 1 }, { 11, 1 } }, [3] = { { 2, 0 }, { 4, 0 }, { 8, 1 }, { 11, 1 }, { 12, 1 } }, [4] = { { 3, 0 }, { 5, 0 }, { 12, 1 } }, [5] = { { 4, 0 }, { 6, 0 }, { 12, 1 }, { 13, 1 }, { 14, 1 } }, [6] = { { 5, 0 }, { 7, 0 }, { 14, 1 } }, [7] = { { 6, 0 }, { 14, 1 }, { 22, 1 }, { 39, 1 } }, [8] = { { 1, 1 }, { 2, 1 }, { 3, 1 }, { 11, 0 } }, [11] = { { 2, 1 }, { 3, 1 }, { 8, 0 }, { 12, 0 } }, [12] = { { 3, 1 }, { 4, 1 }, { 5, 1 }, { 11, 0 }, { 13, 0 } }, [13] = { { 5, 1 }, { 12, 0 }, { 14, 0 } }, [14] = { { 5, 1 }, { 6, 1 }, { 7, 1 }, { 13, 0 }, { 22, 0 } }, [22] = { { 7, 1 }, { 14, 0 }, { 39, 0 } }, [24] = { { 25, 0 } }, [25] = { { 24, 0 }, { 26, 0 } }, [26] = { { 25, 0 }, { 30, 0 }, { 31, 0 } }, [30] = { { 26, 0 }, { 31, 0 }, { 34, 0 } }, [31] = { { 26, 0 }, { 30, 0 } }, [34] = { { 30, 0 }, { 35, 0 }, { 37, 0 } }, [35] = { { 34, 0 }, { 36, 0 } }, [36] = { { 35, 0 }, { 37, 0 } }, [37] = { { 34, 0 }, { 36, 0 } }, [39] = { { 7, 1 }, { 22, 0 } } } },
 }
 CUR_MAP = "Eriador"
 WATER = {}
@@ -232,7 +277,7 @@ AGENTS = {
 }
 
 -- Campaign alliances: each side may field one army from its allied list without it being a Mercenary.
-THEATRES = { "Eriador", "Rohan", "Gondor" }
+THEATRES = { "Eriador", "Rohan", "Gondor", "North" }
 ALLIANCES = {
   Eriador = { Good = { name = "Sister Kingdom", list = "Minas Tirith" },        Evil = { name = "Angmar's Origin", list = "Mordor" } },
   Rohan   = { Good = { name = "Riches of the Glittering Caves", list = "Army of Erebor" }, Evil = { name = "Saruman's Influence", list = "Moria" } },
@@ -3489,11 +3534,11 @@ THEATRE_RULES.North = {
   { key = "mirkwood", name = "Dangers of Mirkwood",
     text = "Entering a Mirkwood territory costs 1 extra point of movement, except for Woodland Realm and Shadows of Mirkwood armies." },
   { key = "divided", name = "The North Divided",
-    text = "Good starts with only Esgaroth and Erebor; Evil starts with 6 territories. Erebor and Esgaroth both start with a City." },
+    text = "Good starts with only Erebor (its capital) and Esgaroth, both with a City. Evil starts with 6 territories in three holds: Dol Guldur (its capital) and Southern Mirkwood, Gundabad and the Sources of the Anduin, Mistrand and Rhûn. Across the Anduin, territories only border at its crossings (the Sources, the Carrock and the Old Ford)." },
   { key = "glitter", name = "Glittering Gold",
     text = "Once Erebor's City has all three upgrades, Evil rolls a D6 at the start of every Logistics stage: on a 3+ the Desolators of the North, a unique 700 point army, appear in Erebor. They follow the rules for an 800 point army, but always move 3, gain nothing from Roads and can never have their movement hindered. They don't count against Evil's Point Cap." },
   { key = "anduin", name = "The River Anduin",
-    text = "An army in a territory on the Anduin or the sea may pay 25 RP per territory, from the RP it carries, to sail up to 4 territories along the shore. Sailing uses 1 point of its movement. It may instead cross the Anduin to a territory on the far bank for a flat 75 RP, which ends its movement." },
+    text = "An army in a territory on the Anduin, the Long Lake, the River Running or the Sea of Rhûn may pay 25 RP per territory, from the RP it carries, to sail up to 4 territories along the shore. Sailing uses 1 point of its movement. It may instead cross the Anduin to a territory on the far bank for a flat 75 RP, which ends its movement." },
 }
 THEATRE_RULES.Gondor = {
   { key = "established", name = "Established Power",
@@ -3791,7 +3836,8 @@ end
 -- ===================================================================  The North
 -- the territories its rules name (the map is still being drawn: these are matched by name)
 NORTH = { erebor = "Erebor", esgaroth = "Esgaroth", halls = "Thranduil's Halls", ironhills = "Iron Hills",
-  forts = { "Dol Guldur", "Gundabad", "Mistrand" }, mirkwood = {} }
+  forts = { "Dol Guldur", "Gundabad", "Mistrand" },
+  mirkwood = { "Northern Mirkwood", "Enchanted River", "Thranduil's Halls", "Emyn Duir", "Old Forest Road", "Eastern Mirkwood", "Narrows of the Forest", "Dol Guldur", "Southern Mirkwood" } }
 local function northT(key) return terrByName(NORTH[key]) end
 local function listHas(a, ...) local l = string.lower(a.list or ""); for _, w in ipairs({ ... }) do if string.find(l, w, 1, true) then return true end end return false end
 function isMirkwood(n)
