@@ -3440,7 +3440,9 @@ THEATRE_RULES = {
 }
 THEATRE_RULES.Gondor = {
   { key = "established", name = "Established Power",
-    text = "Both Good and Evil start the campaign holding 12 territories. Minas Morgul begins with Fortifications and a City." },
+    text = "Both Good and Evil start the campaign holding 12 territories." },
+  { key = "deadcity", name = "The Dead City",
+    text = "Evil starts the campaign with Fortifications and a City in Minas Morgul." },
   { key = "anduin", name = "The River Anduin",
     text = "An army in a territory on the Anduin or the sea may pay 25 RP per territory, from the RP it carries, to sail up to 4 territories along the shore. Sailing uses 1 point of its movement. It may instead cross the Anduin to a territory on the far bank for a flat 75 RP, which ends its movement. Example: 100 RP to sail from Belfalas to the Crossings of Erui; 75 RP to cross from Emyn Arnen to the Crossings of Erui." },
   { key = "osgiliath", name = "Osgiliath Fatigue",
@@ -3623,11 +3625,11 @@ function rulesAtStart()
     if hd and not S.terr[hd].b.fort then S.terr[hd].b.fort = true; pieceHook("built", hd, "fort") end
     if hd then clog("The Hornburg: Helm's Deep begins with Fortifications, and its garrison is 600 points.") end
   end
-  if theatreRule("established") then   -- Gondor: the Dead City is walled from the start
+  if theatreRule("deadcity") then   -- Gondor: the Dead City is walled from the start
     local mm = terrByName("Minas Morgul")
     if mm and not S.terr[mm].b.fort then S.terr[mm].b.fort = true; pieceHook("built", mm, "fort") end
     if mm and not S.terr[mm].b.city then S.terr[mm].b.city = true; pieceHook("built", mm, "city") end
-    if mm then clog("Established Power: Minas Morgul begins with Fortifications and a City.") end
+    if mm then clog("The Dead City: Evil begins with Fortifications and a City in Minas Morgul.") end
   end
   if hasRule("Evil", "hordes") then
     local cap = S.settings.capEvil
