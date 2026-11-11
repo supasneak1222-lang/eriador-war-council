@@ -3556,12 +3556,12 @@ THEATRE_RULES.North = {
   { key = "shattered", name = "Shattered Alliances",
     text = "Good can't raise Woodland Realm armies until it has taken Thranduil's Halls, or Iron Hills armies until it has taken the Iron Hills." },
   { key = "mirkwood", name = "Dangers of Mirkwood",
-    text = "Entering a Mirkwood territory costs 1 extra point of movement, except for Woodland Realm and Shadows of Mirkwood armies." },
+    text = "Entering a Mirkwood territory costs 1 extra point of movement, except for Woodland Realm and Fell Beings of Mirkwood armies." },
   { key = "divided", name = "The North Divided",
     text = "Good starts with only Erebor (its capital) and Esgaroth, both with a City. Evil starts with 6 territories in three holds: Dol Guldur (its capital) and Southern Mirkwood, Gundabad and the Sources of the Anduin, Mistrand and Rhûn. Across the Anduin, territories only border at its crossings (the Sources, the Carrock and the Old Ford)." },
   { key = "glitter", name = "Glittering Gold",
     text = "Once Erebor's City has all three upgrades, Evil rolls a D6 at the start of every Logistics stage: on a 3+ the Desolators of the North, a unique 700 point army, appear in Erebor. They follow the rules for an 800 point army, but always move 3, gain nothing from Roads and can never have their movement hindered. They don't count against Evil's Point Cap." },
-  { key = "anduin", name = "The River Anduin",
+  { key = "anduin", name = "River Travel",
     text = "An army in a territory on the Anduin, the Long Lake, the River Running or the Sea of Rhûn may pay 25 RP per territory, from the RP it carries, to sail up to 4 territories along the shore. Sailing uses 1 point of its movement. It may instead cross the Anduin to a territory on the far bank for a flat 75 RP, which ends its movement." },
 }
 THEATRE_RULES.Gondor = {
@@ -3870,7 +3870,7 @@ function isMirkwood(n)
   for _, nm in ipairs(NORTH.mirkwood) do if nm == NAMES[n] then return true end end
   return false
 end
--- Dangers of Mirkwood: entering the forest costs an army 1 more, unless it is of the Woodland Realm or the Shadows of Mirkwood
+-- Dangers of Mirkwood: entering the forest costs an army 1 more, unless it is of the Woodland Realm or the Fell Beings of Mirkwood
 function mirkwoodSlows(a, n) return a and a.side and isMirkwood(n) and not listHas(a, "woodland", "thranduil", "mirkwood") end
 -- Shattered Alliances
 function shatteredBlocks(side, list)
