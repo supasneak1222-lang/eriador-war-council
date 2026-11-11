@@ -225,8 +225,16 @@ function appBattle(n, swap, viewer)
   end
   local done = nil
   for i = #S.battles, 1, -1 do local b = S.battles[i]; if b.t ~= S.turn then break end; if b.n == n then done = (S.settings.hidden and b["t" .. viewer]) or b.text; break end end
+  -- the North: armies facing Azog (his Head-taker rule), and whether Bilbo may refuse this battle
+  local azog = {}
+  if S.settings.theatre == "North" and hasRule("Evil", "azog") then
+    for _, x in ipairs(here) do
+      for _, y in ipairs(armiesIn(n, OTHER[x.side])) do if hasHero(y, "azog") then azog[#azog + 1] = { id = x.id, name = label(viewer, x) }; break end end
+    end
+  end
+  local bilbo = S.settings.theatre == "North" and bilboAvoidWhy and bilboAvoidWhy(n) == nil or false
   return JSON.encode({ n = n, atk = brief(A), def = brief(D), atkList = al, defList = dl, siege = siege,
-                       owner = S.terr[n].owner, conditions = cond, done = done })
+                       owner = S.terr[n].owner, conditions = cond, done = done, azog = azog, bilbo = bilbo })
 end
 
 -- "11 of 31 lost = 35% · broken"

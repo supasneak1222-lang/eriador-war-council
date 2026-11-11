@@ -1877,7 +1877,7 @@ function battleTerritories()
   for n, t in ipairs(S.terr) do
     local g, e = #armiesIn(n, "Good") > 0, #armiesIn(n, "Evil") > 0
     local garrison = t.b.fort and t.owner ~= "Neutral" and #armiesIn(n, OTHER[t.owner]) > 0
-    if ((g and e) or garrison) and siegeReady(n) then table.insert(out, n) end
+    if ((g and e) or garrison) and siegeReady(n) and not (S.bilboSkip and S.bilboSkip[n] == S.turn) then table.insert(out, n) end
   end
   return out
 end
@@ -2030,9 +2030,21 @@ function applyBattle(p)
   for id, o in string.gmatch(tostring(p.outs or ""), "(%d+):(%a+)") do outs[tonumber(id)] = o end
   local anyRets = false
   for id in string.gmatch(tostring(p.rets or ""), "%d+") do rets[tonumber(id)] = true; anyRets = true end
+  local azogX = tonumber(p.azog)
+  if azogX then
+    local AZ = armyById(azogX)
+    local ok_ = AZ and S.settings.theatre == "North" and hasRule("Evil", "azog")
+    local inIt = false
+    for _, x in ipairs(AS) do if x == AZ then inIt = true end end
+    for _, x in ipairs(DS) do if x == AZ then inIt = true end end
+    local foeAzog = false
+    if ok_ and inIt then for _, x in ipairs((AZ.side == A.side) and DS or AS) do if hasHero(x, "azog") then foeAzog = true end end end
+    if not (ok_ and inIt and foeAzog) then return "Azog the Head-taker: only the leader of an army that fought against Azog's army can be marked as slain by him." end
+  end
   local function outOf(x)
     local o = outs[x.id] or p.outcome or "Broken"
     if o ~= "Broken" and o ~= "Quartered" and o ~= "Destroyed" then o = "Broken" end
+    if azogX == x.id and o ~= "Destroyed" then o = "Quartered" end
     return o
   end
   local function retOf(x)
@@ -2045,8 +2057,8 @@ function applyBattle(p)
       return x.name .. " called the retreat on turn " .. x.retreatTurn .. " and can't do so again until turn " .. (x.retreatTurn + RETREAT_LOCK + 1) .. "."
     end
   end
-  local outcome = Lz and outOf(Lz) or (p.outcome or "Broken")     -- the lead loser's, for the battle record
-  if Lz and retOf(Lz) then outcome = "Broken" end
+  local function finalOut(x) if retOf(x) and azogX ~= x.id then return "Broken" end return outOf(x) end
+  local outcome = Lz and finalOut(Lz) or (p.outcome or "Broken")     -- the lead loser's, for the battle record
   for _, x in ipairs(AS) do pcall(battleCancels, x) end
   for _, x in ipairs(DS) do pcall(battleCancels, x) end
   pcall(function() local up = table.unpack or unpack; eventAfterBattle(up(AS)); eventAfterBattle(up(DS)) end)
@@ -2069,7 +2081,10 @@ function applyBattle(p)
   end
   local aNames, dNames = group(AS, "the attackers"), group(DS, "the garrison")
   local winNames = atkWon and aNames or dNames
-  local function fate(x) return retOf(x) and "called the retreat and counts as Broken" or ("was " .. outOf(x)) end
+  local function fate(x)
+    if azogX == x.id then return "lost its leader to Azog's blade and counts as " .. outOf(x) end
+    return retOf(x) and "called the retreat and counts as Broken" or ("was " .. outOf(x))
+  end
   local summary = { "Battle at " .. tname(n) .. ": " .. aNames .. " vs " .. dNames .. ". " .. winNames .. " won." }
   if #LS_ == 1 then summary[1] = summary[1] .. " The loser " .. fate(LS_[1]) .. "."
   else for _, x in ipairs(LS_) do table.insert(summary, R(x) .. " " .. fate(x) .. ".") end end
@@ -2116,7 +2131,7 @@ function applyBattle(p)
   end
   -- loot and retreat, loser by loser
   for _, x in ipairs(LS_) do
-    local outcome = retOf(x) and "Broken" or outOf(x)
+    local outcome = finalOut(x)
     local carried = x.carried or 0
     local lost
     if outcome == "Destroyed" then lost = carried
@@ -2133,7 +2148,7 @@ function applyBattle(p)
     x.result = outcome
   end
   for _, x in ipairs(LS_) do
-    local outcome = retOf(x) and "Broken" or outOf(x)
+    local outcome = finalOut(x)
     if outcome == "Destroyed" then
       table.insert(summary, R(x) .. " was destroyed.")
       removeArmy(x)
@@ -2143,6 +2158,13 @@ function applyBattle(p)
     end
   end
   for _, x in ipairs(WS_) do x.result = nil end
+  for _, x in ipairs(WS_) do if azogX == x.id then x.result = "Quartered"; table.insert(summary, R(x) .. " won, but Azog slew its leader: it counts as Quartered.") end end
+  -- an army beaten by Azog's force remembers it: +1 Courage the next time it faces him (once per army)
+  if S.settings.theatre == "North" and hasRule("Evil", "azog") then
+    local azogWon = false
+    for _, w in ipairs(WS_) do if hasHero(w, "azog") then azogWon = true end end
+    if azogWon then for _, x in ipairs(LS_) do if armyById(x.id) and not x.azogGrudgeGot then x.azogGrudge, x.azogGrudgeGot = true, true; table.insert(summary, R(x) .. " will remember Azog: +1 Courage when it next faces his force.") end end end
+  end
   -- a win in enemy territory that the winner isn't conquering: it pillages the territory at once, of all its RP
   if W and terr.owner == OTHER[W.side] and not (cq and cq.by == W.side) then
     local take = terr.stock or 0
@@ -3928,7 +3950,7 @@ function northLogistics()
   end
   if hasRule("Good", "burglar") then
     for _, a in ipairs(S.armies) do
-      if a.side == "Good" and a.status ~= "building" and string.find(string.lower(a.leader or ""), "bilbo", 1, true) and #armiesIn(a.loc, "Evil") > 0 then
+      if a.side == "Good" and a.status ~= "building" and bilboLed(a) and (#armiesIn(a.loc, "Evil") > 0 or a.bilboOutT == S.turn) then
         clog("I'm a Burglar: an enemy army shares " .. tname(a.loc) .. " with " .. a.name .. ", so Bilbo must move out of it this Logistics stage.", "Good", "armies")
       end
     end
@@ -3992,6 +4014,25 @@ function northConquered(n, owner)
     pieceHook("created", "army", a)
     clog("Alliances Renewed! Elves, Men and Dwarves stand together once more: a free 600 point Battle of the Five Armies army gathers at " .. tname(at) .. ".", nil, "armies")
   end
+end
+-- I'm a Burglar: Bilbo's army is never forced to fight
+function bilboLed(a) return a and string.find(string.lower(a.leader or ""), "bilbo", 1, true) ~= nil end
+function bilboAvoidWhy(n)
+  n = tonumber(n)
+  if not n or not S.terr[n] then return "Choose a territory." end
+  if not hasRule("Good", "burglar") then return "I'm a Burglar is a Good special rule of the North." end
+  local good = armiesIn(n, "Good")
+  if #good == 0 then return "Good has no army there." end
+  for _, a in ipairs(good) do if not bilboLed(a) then return a.name .. " isn't led by Bilbo, so the battle must be fought." end end
+  return nil
+end
+function bilboAvoid(n)
+  local why = bilboAvoidWhy(n); if why then return why end
+  n = tonumber(n)
+  S.bilboSkip = S.bilboSkip or {}; S.bilboSkip[n] = S.turn
+  for _, a in ipairs(armiesIn(n, "Good")) do a.bilboOutT = S.turn + 1 end
+  clog("I'm a Burglar: Bilbo slips away and refuses battle at " .. tname(n) .. ". He must move out of it in the next Logistics stage.", nil, "armies")
+  return true
 end
 -- The Arkenstone: the territory its bearer stands in makes +25 RP
 function arkenstoneBonus(n)
@@ -4415,6 +4456,9 @@ function eventBattleLines(n, a, lines)
   if a.badBloodT == S.turn then table.insert(lines, pubName(a) .. ": Bad Blood, +1 Courage this battle.") end
   if S.durinT == S.turn and a.side == "Good" and isDwarven(a) then table.insert(lines, pubName(a) .. ": Durin's Birthday, automatically passes Courage tests (Break tests as normal).") end
   if a.arkenstone then table.insert(lines, pubName(a) .. " bears the Arkenstone: its Heroes can't use Stand Fast!, and its leader has +2 Courage.") end
+  if a.azogGrudge and S.settings.theatre == "North" then
+    for _, x in ipairs(armiesIn(n, OTHER[a.side])) do if hasHero(x, "azog") then table.insert(lines, pubName(a) .. ": beaten by Azog before, +1 Courage against his force."); break end end
+  end
   if S.settings.theatre == "North" and hasHero(a, "azog") then table.insert(lines, pubName(a) .. ": Azog the Head-taker. If Azog slays the enemy leader, that army counts as Quartered whatever the result (unless destroyed).") end
   if a.side == "Evil" and S.dunland == S.turn and (a.pillagedT == S.turn or (a.order and a.order.k == "pillage")) then table.insert(lines, pubName(a) .. ": Dunland's Rage, pillaged this turn, -1 Courage this battle.") end
 end
@@ -12852,11 +12896,13 @@ function uiRun(player, arg)
   elseif a == "bprio" then
     local n = numOf(f.r_bTerr)
     if n then r = rollBattlePriority(n, armyById(idOf(f.r_bAtk)), armyById(idOf(f.r_bDef))); say(pk, r, "Battle priority rolled - see the Log.") end
+  elseif a == "bilbo" then
+    local r = bilboAvoid(numOf(f.r_bTerr)); if r ~= true then return r end
   elseif a == "bapply" then
     r = applyBattle({ terr = numOf(f.r_bTerr), atk = idOf(f.r_bAtk),
                       def = (string.find(f.r_bDef or "", "Garrison", 1, true) and "garrison") or idOf(f.r_bDef),
                       winner = f.bWin, outcome = f.bOut or "Broken", casA = f.bCasA, casD = f.bCasD, duel = f.bDuel or "none",
-                      retreat = f.bRetreat == "True", atkAll = f.bAtkAll, defAll = f.bDefAll, cas = f.bCas, outs = f.bOuts, rets = f.bRets, leaders = f.bLeaders })
+                      retreat = f.bRetreat == "True", atkAll = f.bAtkAll, defAll = f.bDefAll, cas = f.bCas, outs = f.bOuts, rets = f.bRets, leaders = f.bLeaders, azog = f.bAzog })
     say(pk, r, "Battle recorded. Losers retreat in the Retreat stage.")
     if r == true then f.bCasA, f.bCasD, f.bWin, f.bDuel, f.r_bLostA, f.r_bLostD, f.bRetreat = nil, nil, nil, nil, nil, nil, nil; u.bopen = nil end
   elseif a == "xfer" then
