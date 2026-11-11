@@ -489,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=d6b47f5345').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=c9e724f9ab').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -1117,7 +1117,7 @@ async function doSync() {
     { const L = LANDMARKS[T[n] && T[n].name]; if (L && L.always) want.set(`lm:${n}`, { kind: 'building', n, file: L.file, key: 'lm', landmark: L }); }
     for (const q of t.q || []) if (BMODEL[q.key] && !landmarkHides(n, q.key, t)) { const L = landmarkFor(n, q.key); want.set(`q:${n}:${q.key}`, { kind: 'building', n, file: L ? L.file : BMODEL[q.key], key: q.key, ghost: true, q, landmark: L }); }
   });
-  for (const a of S.armies) want.set(`a:${a.id}`, { kind: 'army', n: a.loc, file: armyFile(a), a });
+  for (const a of S.armies) if (!a.away) want.set(`a:${a.id}`, { kind: 'army', n: a.loc, file: armyFile(a), a });   // armies away as mercenaries leave the board
   for (const g of S.agents || []) if (!g.army && g.loc) want.set(`g:${g.id}`, { kind: 'agent', n: g.loc, g });
   for (const [k, o] of things) if (!want.has(k)) {
     things.delete(k); removeLabel(k); driving.delete(k);
@@ -2038,7 +2038,7 @@ let twiceAsk = {};
 const BUILD = [['hospital', 'Hospital', 150, 3], ['mustering', 'Mustering Grounds', 100, 2], ['tavern', 'Tavern', 75, 2], ['medical', 'Medical College', 100, 3],
   ['slums', 'Slums', 100, 3], ['demolition', 'Demolition Guild', 75, 2], ['roads', 'Roads', 150, 3], ['fort', 'Fortifications', 150, 3], ['city', 'City', 200, 4],
   ['scouttower', 'Scout Tower', 100, 2], ['archery', 'Ballista Tower', 50, 2], ['mapping', 'Land Mapping', 50, 2]];
-const BNAME = Object.fromEntries(BUILD.map(b => [b[0], b[1]])); BNAME.fortup = 'Fortress Upgrade';
+const BNAME = Object.fromEntries(BUILD.map(b => [b[0], b[1]])); BNAME.fortup = 'Fortress Upgrade'; BNAME.ereborup = 'Erebor Upgrade';
 const gpts = (n) => (S.garrison && S.garrison[n - 1]) || 400;
 const note = (t, warn) => `<div style="color:${warn ? '#f0c27a' : 'var(--dim)'};margin-top:6px;font-size:14.5px">${t}</div>`;
 const opt = (val, label, selected) => `<option value="${esc(val)}"${selected ? ' selected' : ''}>${esc(label)}</option>`;
@@ -2048,7 +2048,7 @@ const hasCorsairs = (side) => hasRuleApp(side, 'corsairs');
 const isUmbar = (a) => a.side === 'Evil' && hasCorsairs('Evil') && (a.umbar != null ? !!a.umbar : /umbar|corsair/i.test(a.list || ''));
 const canSee = (side) => side === acting || S.settings.override || !S.settings.hidden;
 const sizeKnown = (a) => canSee(a.side) || a.status !== 'building';   // an enemy army still being raised keeps its size secret
-const sizeTxt = (a) => sizeKnown(a) ? `${a.size} pts` : '? pts';
+const sizeTxt = (a) => sizeKnown(a) ? `${a.tablePts || a.size} pts` : '? pts';
 function terrCard(n) {
   const t = S.terr[n - 1], see = canSee(t.owner), I = JSON.parse(luaCall('appTerrInfo', n, acting));
   const built = Object.entries(t.b || {}).filter(([, v]) => v).map(([k]) => k);
@@ -2084,6 +2084,9 @@ function terrCard(n) {
     if (I.fortUp) { const F = I.fortUp;
       h += `<h3>Fortress</h3><div class="grid2"><button ${F.room > 0 ? '' : 'disabled'} data-act="build~${n}~fortup" title="${esc(F.room > 0 ? F.rules : 'No upgrade possible: ' + F.why + '.')}">Fortress Upgrade<small>${F.cost} RP · ${F.turns} turns · garrison ${F.garrison}${F.room > 0 ? ' → ' + (F.garrison + 200) : ''} pts</small></button></div>`;
       if (F.room <= 0) h += note(`No upgrade now: ${F.why}.`); }
+    if (I.ereborUp) { const E = I.ereborUp;   // The Riches of Erebor
+      h += `<h3>The Riches of Erebor · ${E.level} of 3</h3><div class="grid2"><button ${E.room > 0 ? '' : 'disabled'} data-act="ereborup~${n}" title="${esc(E.room > 0 ? E.rules : 'No upgrade possible: ' + E.why + '.')}">Upgrade Erebor<small>${E.cost} RP · ${E.turns} turns · City +${E.income}${E.room > 0 ? ' → +' + (E.income + 50) : ''} RP · counts as a City</small></button></div>`;
+      if (E.room <= 0) h += note(`No upgrade now: ${E.why}.`); }
     { const cr = S.cityRoom && S.cityRoom[acting]; if (cr && !built.includes('city') && cr.cities >= cr.allowed) h += note(`Cities: ${acting} owns ${cr.owned} territories, which allows ${cr.allowed} Cit${cr.allowed === 1 ? 'y' : 'ies'} (1 for every 4). Take more land to build another.`); }
     const al = S.alliance[acting];
     h += `<h3>Armies · ${S.count[acting]} of ${S.cap[acting]} pts${ruleLink('armies')}</h3><button data-toggle="raise" ${S.count[acting] + 400 > S.cap[acting] ? 'disabled title="At the Point Cap: build a City for 600 more points."' : ''}>${open.raise ? 'Cancel' : 'Raise an army here'}</button>`;
@@ -2240,7 +2243,7 @@ function armyCard(a) {
   if (!canSee(a.side)) {
     const k = (a.know && a.know[acting]) || {};
     return `<h2>${esc(pubName(a))}</h2><div class="sub"><span class="pill ${a.side}">${a.side}</span>${a.status === 'building' ? '<span class="pill Neutral">Being raised</span>' : ''}</div>
-      <div class="kv"><span>Where</span><span>${esc(tname(a.loc))}</span><span>Size</span><span>${sizeKnown(a) ? a.size + ' pts' : 'unknown'}${k.units && a.cavalry ? ' · cavalry' : ''}</span>
+      <div class="kv"><span>Where</span><span>${esc(tname(a.loc))}</span><span>Size</span><span>${sizeKnown(a) ? (a.tablePts ? a.tablePts + ' pts (an 800 pt army in every rule)' : a.size + ' pts') : 'unknown'}${k.units && a.cavalry ? ' · cavalry' : ''}</span>
       <span>Leader</span><span>${k.leader ? esc(a.leader || 'no named leader') : 'unknown'}</span>
       ${k.units ? `<span>List</span><span>${esc(a.list || '—')}</span><span>Strength</span><span>${a.damage ? '−' + a.damage + '%' : 'full'}</span>${a.units ? `<span>Units</span><span style="font-size:14px">${esc(a.units)}</span>` : ''}` : ''}</div>
       ${k.units ? cardsBlock(a) : ''}${note(k.units ? 'Your scouts know what this army contains.' : k.leader ? 'Your scouts have seen its leader, but not what it contains.' : 'An enemy army: send a Scout to learn more.')}`;
@@ -2269,6 +2272,13 @@ function armyCard(a) {
         ${note(a.umbarLand === S.turn ? 'Just finished raising: it may set sail at once to any territory next to the sea or the Anduin.' : 'Rule override: set sail as if it had just finished raising.')}`;
     }
   }
+  if (a.away) h += note(`Away off the map, fighting as mercenaries. Returns to ${esc(T[a.loc].name)} at the end of the Logistics stage of turn ${a.away.back}, bringing 100 RP.`, true);
+  else if (a.mercWhy !== undefined && a.side === acting && a.status !== 'building') {   // The Finest Mercenaries
+    h += `<h3>The Finest Mercenaries${ruleLink('specials')}</h3><div class="row"><button class="gold" ${a.mercWhy ? 'disabled' : ''} data-act="mercsend~${a.id}" title="${esc(a.mercWhy || 'Gone until the end of the next Logistics stage; returns with 100 RP. Once every 4 turns.')}">Send off as mercenaries</button></div>`;
+    if (a.mercWhy) h += note(a.mercWhy);
+  }
+  if (a.desolator) h += note('The Desolators of the North: always move 3, gain nothing from Roads, and nothing can hinder their movement. They don\'t count against the Point Cap.');
+  if (a.arkenstone) h += note('Bears the Arkenstone: the territory it stands in makes +25 RP, and it replenishes and upgrades for 50 RP less. Its Heroes can\'t use Stand Fast!, and its leader has +2 Courage.');
   if (S.settings.override) h += `<div class="row" style="margin-top:6px"><label title="Rule override"><input type="checkbox" data-act="freecaptog~${a.id}" ${a.freeCap ? 'checked' : ''}> Override: doesn't count against the Point Cap</label></div>`;
   if (a.status === 'building') {
     if (a.side === acting && (stg === 'Building' || S.settings.override) && I.raiseRefund != null)
@@ -2431,6 +2441,8 @@ function turnPanel() {
       if (e.pending === 'mercs' && mine) {
         const ts = S.terr.map((t, i) => i + 1).filter(n => S.terr[n - 1].owner === sd && (S.terr[n - 1].stock || 0) >= S.armyCost['400'][0]);
         h += `<div class="form" style="margin-top:6px">${mercFormHtml(sd, ts)}</div>`;
+      } else if (e.pending === 'arkenstone' && mine) {
+        h += `<div class="row" style="margin-top:6px"><button class="gold" data-ev="evark~${sd}">Take the Arkenstone</button><button data-ev="evno~${sd}">Leave it</button></div>`;
       } else if (e.pending === 'troll' && mine) {
         h += `<div class="row" style="margin-top:6px"><button class="gold" data-ev="evtroll~${sd}">Raid the hoard (D6, 4+)</button><button data-ev="evno~${sd}">Leave it alone</button></div>`;
       } else if (PICK_EVENTS[e.pending] && mine) {
@@ -2817,7 +2829,8 @@ function eventCard(sd, e, i) {
   if (e.pending === 'mercs' && mine) {
     const ts = S.terr.map((t, k) => k + 1).filter(n => S.terr[n - 1].owner === sd && (S.terr[n - 1].stock || 0) >= S.armyCost['400'][0]);
     choice = `<div class="ec-choice">${mercFormHtml(sd, ts)}</div>`;
-  } else if (e.pending === 'troll' && mine) choice = `<div class="ec-choice"><div class="row"><button class="gold" data-ev="evtroll~${sd}">Raid the hoard (4+)</button><button data-ev="evno~${sd}">Leave it</button></div></div>`;
+  } else if (e.pending === 'arkenstone' && mine) choice = `<div class="ec-choice"><div class="row"><button class="gold" data-ev="evark~${sd}">Take the Arkenstone</button><button data-ev="evno~${sd}">Leave it</button></div></div>`;
+  else if (e.pending === 'troll' && mine) choice = `<div class="ec-choice"><div class="row"><button class="gold" data-ev="evtroll~${sd}">Raid the hoard (4+)</button><button data-ev="evno~${sd}">Leave it</button></div></div>`;
   else if (PICK_EVENTS[e.pending] && mine) choice = `<div class="ec-choice">${pickEventForm(sd, e)}</div>`;
   else if (e.pending) choice = `<div class="ec-choice"><small>Waiting for ${sd} to decide.</small></div>`;
   return `<div class="ecard ${sd}" style="animation-delay:${0.25 + i * 0.35}s"><div class="ec-crest">${CREST[sd]}</div>
@@ -2964,13 +2977,13 @@ async function download(name, text, type = 'application/json') {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
-const RULE_PAGES_ALL = { turn: 7, armies: 8, battles: 11, movement: 10, agents: 13, resources: 14, buildings: 15, conquest: 16, actions: 16, specials: 17, events: 22, campaigns: 3, map: 4, theatre: 19, scenario: 28 };
+const RULE_PAGES_ALL = { turn: 8, armies: 9, battles: 12, movement: 11, agents: 14, resources: 15, buildings: 16, conquest: 17, actions: 17, specials: 18, events: 25, campaigns: 3, map: 5, theatre: 3, scenario: 33 };
 // some pages belong to the theatre being played
-const RULE_PAGES_BY = { Rohan: { specials: 18, events: 24, map: 5, theatre: 19 }, Gondor: { specials: 20, events: 26, map: 6, theatre: 21 } };
+const RULE_PAGES_BY = { Rohan: { specials: 19, events: 27, map: 6, theatre: 20 }, Gondor: { specials: 21, events: 29, map: 7, theatre: 22 }, North: { specials: 23, events: 31, theatre: 24 } };
 const RULE_PAGES = new Proxy(RULE_PAGES_ALL, { get: (o, k) => ((RULE_PAGES_BY[(typeof S !== 'undefined' && S && S.settings && S.settings.theatre) || 'Eriador'] || {})[k]) || o[k] });
 
 // The rulebook opens inside the page: the hosted page can't open new tabs, so every rules link lands here.
-const RULE_N = 28;
+const RULE_N = 33;
 function openRulebook(page = 1) {
   const el = $('rulebook');
   if (!el.dataset.built) {
@@ -4614,7 +4627,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=d6b47f5345').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=c9e724f9ab').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4829,7 +4842,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=d6b47f5345').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=c9e724f9ab').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
