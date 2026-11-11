@@ -86,6 +86,7 @@ function appState()
   out.stageName = S.started and STAGES[S.stage] or nil
   out.relief = {}
   for i = 1, #S.terr do if reliefBattle(i) then out.relief[#out.relief + 1] = i end end
+  out.eorlSpots = (S.eorlOffer and eorlSpots) and eorlSpots() or {}   -- Forth Eorlingas!: where the Riders may ride out now
   out.income, out.garrison = {}, {}
   for i = 1, #S.terr do out.income[i] = income(i); out.garrison[i] = garrisonSize(i) end
   -- what each side calls every army (the enemy may know it only as "Evil Army 3")
@@ -304,7 +305,7 @@ function appTerrInfo(n, viewer)
   local room, why = fortUpRoom(n)
   local fortUp = t.b.fort and { level = t.fortup or 0, garrison = garrisonSize(n), room = room, why = why, cost = FORT_UP.cost, turns = FORT_UP.turns, rules = FORT_UP.rules } or nil
   local eorlState = nil   -- Forth Eorlingas!: false when it can be raised here, else why not
-  if hasRule("Good", "eorlingas") and not S.eorlDone and t.owner == "Good" then eorlState = eorlWhy(n) or false end
+  if hasRule("Good", "eorlingas") and not S.eorlDone and S.eorlOffer and t.owner == "Good" then eorlState = eorlWhy(n) or false end
   local eRoom, eWhy = ereborUpRoom(n, side)
   local ereborUp = (hasRule("Good", "erebor") and n == terrByName(NORTH.erebor) and t.b.city) and { level = t.ereborUp or 0, room = eRoom, why = eWhy, cost = EREBOR_UP.cost,
     turns = EREBOR_UP.turns, rules = EREBOR_UP.rules, income = CITY_INCOME + 50 * (t.ereborUp or 0) } or nil

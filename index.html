@@ -489,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=8e0a31dcc1').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=d27fb5967c').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -2447,8 +2447,14 @@ function turnPanel() {
   if (E && !pending && (E.roll >= 4 || S.stage > 2)) E = null;    // nothing happened, or it's old news by now
   const rules = (S.specials[acting] || []).filter(r => r.declare && r.ok);
   const eye = S.eye && S.eye.t === S.turn && S.terr[S.eye.n - 1] ? S.eye.n : 0;
-  if (!E && !rules.length && !eye) return '';
+  const eorl = S.eorlOffer && acting === 'Good' ? S.eorlSpots || [] : null;   // Forth Eorlingas!: answer it now or lose it
+  if (!E && !rules.length && !eye && !eorl) return '';
   let h = `<div class="panel turnp"><h2>This turn${ruleLink('events', 'Events')}${ruleLink('specials', 'Special rules')}</h2>`;
+  if (eorl) {
+    const lost = (S.eorlOffer.lost || []).map(n => T[n] ? T[n].name : '?').join(', ');
+    h += `<div class="item" style="cursor:default;display:block"><span class="pill Good">Good</span><b>Forth Eorlingas!</b><br><span style="color:var(--dim);font-size:14px">${esc(lost)} has fallen. Raise a free 600 point Kingdom of Rohan army, ready at once, in a territory next to it, or let the moment pass. Once per campaign; the chance is gone when the stage moves on.</span>
+      <div class="row" style="margin-top:6px;flex-wrap:wrap">${eorl.length ? eorl.map(n => `<button class="gold" data-ev="eorl~${n}">Ride out at ${esc(T[n].name)}</button>`).join('') : '<small style="color:var(--dim)">Good holds no territory next to it.</small>'}<button data-ev="eorlno">Let it pass</button></div></div>`;
+  }
   if (E) {
     h += `<div style="color:var(--dim)">${esc(E.roller)} rolled ${E.roll} for random events${E.roll >= 4 ? ': nothing happens.' : ': both sides draw an event.'}</div>`;
     for (const sd of ['Good', 'Evil']) {
@@ -4644,7 +4650,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=8e0a31dcc1').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=d27fb5967c').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4859,7 +4865,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=8e0a31dcc1').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=d27fb5967c').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }

@@ -745,7 +745,7 @@ function setOwner(n, owner, why)
   local old = t.owner
   t.owner = owner
   t.conq = nil
-  if old == "Good" then S.goodLost = S.goodLost or {}; S.goodLost[tostring(n)] = S.turn end   -- Forth Eorlingas!
+  if old == "Good" and owner ~= "Good" then pcall(eorlLost, n) end   -- Forth Eorlingas!
   if why == "conquered" then pcall(eventConquered, n, owner); pcall(theatreConquered, n, owner) end
   if t.sow and why == "conquered" then
     clog("The discontent in " .. tname(n) .. " has passed.", nil, "territories")
@@ -1034,6 +1034,7 @@ function advanceStage()
     end
   end
   S.ready = { Good = false, Evil = false }
+  if S.eorlOffer then clog("Forth Eorlingas! was not called: the chance has passed.", "Good", "armies"); S.eorlOffer = nil end   -- it must be answered when the land falls
   if S.stage == #STAGES then
     pcall(eventsTurnEnd)
     pcall(resolveOrders)
@@ -3502,7 +3503,7 @@ SPECIAL_RULES = {
     Good = {
       { key = "swiftness", name = "Swiftness of the Riddermark", auto = true, text = "A Heroic March gives +2 regions instead of +1." },
       { key = "hornburg", name = "The Hornburg", auto = true, text = "Good starts with Fortifications in the Hornburg (Helm's Deep); its garrison is 600 points instead of 400 (Fortress Upgrades take it to 800, then 1000)." },
-      { key = "eorlingas", name = "Forth Eorlingas!", text = "Once per campaign, after a friendly territory is lost, Good may raise a free 600 point Kingdom of Rohan army in an adjacent friendly territory, ready at once. It can take no Heroes other than a Captain of Rohan." },
+      { key = "eorlingas", name = "Forth Eorlingas!", text = "Once per campaign, the moment a friendly territory is lost, Good may raise a free 600 point Kingdom of Rohan army in a friendly territory next to it, ready at once. It must be called then or the chance passes, though it can be called when another territory falls. It can take no Heroes other than a Captain of Rohan." },
     },
     Evil = {
       { key = "whitehand", name = "An Army Worthy of Mordor", auto = true, text = "Evil starts the campaign with a free 400 point Army of the White Hand in its capital." },
@@ -4040,25 +4041,35 @@ function wormtongue(a)
   end
   return true
 end
--- Rohan: Forth Eorlingas! Once per campaign, after Good loses a territory, a free 600 point Kingdom of Rohan army rides out
--- in a Good territory next to one that was lost (and is still out of Good's hands).
+-- Rohan: Forth Eorlingas! Once per campaign, the moment Good loses a territory, it may raise a free 600 point Kingdom of Rohan army
+-- in a Good territory next to the one lost. The offer stands only until the stage moves on.
+function eorlLost(n)
+  if not hasRule("Good", "eorlingas") or S.eorlDone then return end
+  S.eorlOffer = S.eorlOffer or { t = S.turn, lost = {} }
+  table.insert(S.eorlOffer.lost, n)
+  clog("Forth Eorlingas! " .. tname(n) .. " has fallen: Good may raise the Riders of the Mark next to it now, or let the chance pass.", "Good", "armies")
+end
 function eorlWhy(n)
   n = tonumber(n)
   if not hasRule("Good", "eorlingas") then return "Forth Eorlingas! is a Good special rule of the Rohan theatre." end
   if S.eorlDone then return "Forth Eorlingas! has already been used." end
+  if not S.eorlOffer then return "Forth Eorlingas! can only be called the moment a Good territory is lost." end
   if not n or not S.terr[n] or S.terr[n].owner ~= "Good" then return "Choose a territory Good holds." end
-  local lost = false
-  for m, _ in pairs(S.goodLost or {}) do
-    m = tonumber(m)
-    if S.terr[m] and S.terr[m].owner ~= "Good" then for _, x in ipairs(ADJ[n] or {}) do if x == m then lost = true end end end
-  end
-  if not lost then return "Only once Good has lost a territory, and only next to a territory it lost." end
-  return nil
+  for _, m in ipairs(S.eorlOffer.lost) do for _, x in ipairs(ADJ[n] or {}) do if x == m then return nil end end end
+  return "The Riders must ride out next to the territory just lost."
 end
-function eorlAvailable()
-  if not hasRule("Good", "eorlingas") or S.eorlDone then return false end
-  for n, t in ipairs(S.terr) do if t.owner == "Good" and eorlWhy(n) == nil then return true end end
-  return false
+function eorlSpots()
+  local out = {}
+  if not S.eorlOffer then return out end
+  for n, t in ipairs(S.terr) do if t.owner == "Good" and eorlWhy(n) == nil then out[#out + 1] = n end end
+  return out
+end
+function eorlAvailable() return #eorlSpots() > 0 end
+function eorlDecline()
+  if not S.eorlOffer then return "There is no call to answer." end
+  S.eorlOffer = nil
+  clog("Good let the moment pass: the Riders of the Mark stay home. Forth Eorlingas! can still be called when another territory falls.", "Good", "armies")
+  return true
 end
 function eorlingas(n)
   local why = eorlWhy(n); if why then return why end
@@ -4067,7 +4078,7 @@ function eorlingas(n)
               merc = false, cavalry = false, canMarch = false, allied = false, units = "", loc = n, status = "ready", eorlingas = true,
               buildLeft = 0, damage = 0, carried = 0, seenLeader = {}, seenUnits = {}, wounds = {} }
   table.insert(S.armies, a); numberArmy(a)
-  S.eorlDone = true
+  S.eorlDone = true; S.eorlOffer = nil
   pieceHook("created", "army", a)
   clog("Forth Eorlingas! A free 600 point Kingdom of Rohan army rides out at " .. tname(n) .. ", ready at once. It takes no Heroes but a Captain of Rohan.", nil, "armies")
   return true
@@ -12868,6 +12879,7 @@ function uiRun(player, arg)
   elseif a == "evark" then r = takeArkenstone(p1); say(pk, r, "The Arkenstone is taken.")
   elseif a == "worm" then r = wormtongue(armyById(numOf(p1))); say(pk, r, "The whispers are spoken.")
   elseif a == "eorl" then r = eorlingas(numOf(p1)); say(pk, r, "Forth Eorlingas!")
+  elseif a == "eorlno" then r = eorlDecline(); say(pk, r, "The Riders stay home.")
   elseif a == "mercsend" then r = mercSend(armyById(numOf(p1))); say(pk, r, "Sent off as mercenaries.")
   elseif a == "ereborup" then r = ereborUpgrade(p2 or side, numOf(p1)); say(pk, r, "Erebor's upgrade has begun.")
   elseif a == "evno" then r = declineEvent(p1); say(pk, r, "Done.")
