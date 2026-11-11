@@ -489,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=ddb0e056fa').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=5b2f2cd2a9').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -986,9 +986,9 @@ const LANDMARKS = {
     "Helm's Deep": { always: true, hides: ['city', 'fort'], file: 'HelmsDeep', uv: [0.38, 0.79], size: 7.59, sink: 0.05, rot: 0 },
     'Edoras': { always: true, hides: ['city', 'fort'], file: 'Meduseld', uv: [0.525, 0.765], size: 9.158, sink: 0.05, rot: -0.9076 } },
   // the North's landmarks are original models built for the War Council
-  North: { 'Dol Guldur': { always: true, hides: ['city', 'fort'], file: 'DolGuldur', uv: [0.3136, 0.7214], size: 7.2, sink: 0.04, rot: 0, beacon: '#9dffb0', beaconPower: 10 },
+  North: { 'Dol Guldur': { always: true, hides: ['city', 'fort'], file: 'DolGuldur', uv: [0.3303, 0.7319], size: 12.168, sink: 0.1, rot: 0, beacon: '#9dffb0', beaconPower: 10 },
     'Erebor': { always: true, hides: ['city', 'fort'], file: 'Erebor', uv: [0.6818, 0.2143], size: 15, sink: 0.05, rot: 0 },
-    'Gundabad': { always: true, hides: ['city', 'fort'], file: 'Gundabad', uv: [0.0591, 0.0714], size: 8.2, sink: 0.05, rot: 0, beacon: '#ff7a1a', beaconPower: 10 },
+    'Gundabad': { always: true, hides: ['city', 'fort'], file: 'Gundabad', uv: [0.0758, 0.0714], size: 12.3, sink: -0.03, rot: 0.6807, beacon: '#ff7a1a', beaconPower: 10 },
     'Esgaroth': { always: true, hides: ['city', 'fort'], file: 'Esgaroth', uv: [0.6438, 0.4012], size: 5.502, sink: 0.08, rot: Math.PI / 2 } },
 }[MAP_KEY] || {};
 function landmarkFor(n, key) { const L = LANDMARKS[T[n] && T[n].name]; return L && !L.always && L.key === key ? L : null; }
@@ -4632,7 +4632,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=ddb0e056fa').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=5b2f2cd2a9').then(r => r.ok ? r.json() : []).then(list => {
   LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
 }).catch(() => {});
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
@@ -4847,7 +4847,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=ddb0e056fa').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=5b2f2cd2a9').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
