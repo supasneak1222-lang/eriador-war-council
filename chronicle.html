@@ -599,7 +599,7 @@ svg.eclipsed > image { filter: brightness(.62) saturate(.7) hue-rotate(-8deg); t
         <label><input type="checkbox" id="frontToggle" checked> Front lines</label>
         <label><input type="checkbox" id="soundToggle" checked> Sound</label>
         <span class="musicctl"><label><input type="checkbox" id="musicToggle" checked> Music</label><input type="range" id="musicVol" min="0" max="100" value="70" aria-label="Music volume"><button class="btn mini" id="musicSkip" type="button" title="Next track" aria-label="Next track">&#9197;</button><span class="nowplaying" id="nowPlaying"></span></span>
-        <span class="recrange" id="recRange" hidden>Turns <select id="recFrom" aria-label="First turn of the video"></select> to <select id="recTo" aria-label="Last turn of the video"></select></span><button class="btn" id="recBtn" type="button" hidden title="Makes an MP4 of the turns chosen, with their music and sounds">Save as video</button><a class="btn primary" id="recDl" hidden>Download the video</a><span class="sub" id="recMsg" role="status"></span>
+        <span class="recrange" id="recRange" hidden>Turns <select id="recFrom" aria-label="First turn of the video"></select> to <select id="recTo" aria-label="Last turn of the video"></select></span><button class="btn" id="recBtn" type="button" hidden title="Makes an MP4 of the turns chosen, with their music and sounds">Save as video</button><a class="btn primary" id="recDl" hidden>Download the video</a><button class="btn" id="bookBtn" type="button" title="Opens a printable book of the whole campaign: maps at the turning points, every battle report and its screenshots, the heroes and the fallen. Save it as a PDF from the print window.">Make the chronicle book</button><span class="sub" id="recMsg" role="status"></span>
       </div>
       <div class="map" id="map"></div>
       <div class="maplegend" id="legend"></div>
@@ -3145,6 +3145,195 @@ $("playBtn").addEventListener("click", play);
 $("frontToggle").addEventListener("change", () => drawFront(frames[frameIdx]));
 
 // ---------- standing ----------
+// ---------- the chronicle book: the whole campaign as a printable keepsake (saved as a PDF from the print window) ----------
+const THEATRE_TITLE = { Eriador: "Eriador", Rohan: "Rohan", Gondor: "Gondor", North: "the North" };
+function bookStrip(h) { const d = document.createElement("div"); d.innerHTML = h; return d.textContent.replace(/\s+/g, " ").trim(); }
+function bookOwnersCount(f) { const c = { Good: 0, Evil: 0, Neutral: 0 }; [...(f.owners || "")].forEach((o) => { const s = OWN[o]; if (s) c[s]++; }); return c; }
+// a still map of one moment: who held what, and where the turn's battles were fought
+function bookMapSvg(f, turn) {
+  const src = new URL(MAP_SRC, location.href).href;
+  let s = `<svg viewBox="0 0 ${GEO.w} ${GEO.h}" xmlns="http://www.w3.org/2000/svg"><image href="${src}" width="${GEO.w}" height="${GEO.h}"/>`;
+  [...(f.owners || "")].forEach((o, i) => {
+    const side = OWN[o]; if (!side || side === "Neutral") return;
+    (GEO.polys[String(i + 1)] || []).forEach((pt) => { s += `<polygon points="${pt}" fill="${COLORS[side]}" fill-opacity=".34" stroke="${COLORS[side]}" stroke-opacity=".7" stroke-width="2"/>`; });
+  });
+  const caps = state.caps || {};
+  ["Good", "Evil"].forEach((sd) => { const n = caps[sd]; if (!n) return; const p = lab(n);
+    s += `<g transform="translate(${p.x},${p.y - 30})"><circle r="15" fill="#f3e6c4" stroke="#3a2a14" stroke-width="2.5"/><path d="M-9 5 L-10 -6 L-4 -1 L0 -9 L4 -1 L10 -6 L9 5 Z" fill="${COLORS[OWN[(f.owners || "")[n - 1]]] || "#8c6a26"}" stroke="#3a2a14" stroke-width="1.5"/></g>`; });
+  if (turn != null) list(state.battles).filter((b) => Number(b.t) === Number(turn)).forEach((b) => { const p = lab(b.n);
+    s += `<g transform="translate(${p.x - 42},${p.y - 26}) scale(2)">${swordsInner(COLORS[b.win] || "#2b2014")}</g>`; });
+  return s + "</svg>";
+}
+function bookMapFig(f, turn, caption) {
+  const c = bookOwnersCount(f);
+  return `<figure class="bmap">${bookMapSvg(f, turn)}<figcaption>${esc(caption)}<span>Good holds ${c.Good} &middot; Evil holds ${c.Evil}${c.Neutral ? " &middot; " + c.Neutral + " stand free" : ""}</span></figcaption></figure>`;
+}
+// the turn a report's battle was fought (a report is often written a turn or two later)
+function bookReportTurn(r) {
+  const bs = list(state.battles);
+  if (r.battle && bs[r.battle - 1]) return Number(bs[r.battle - 1].t);
+  const here = bs.filter((b) => b.n === r.n && Number(b.t) <= Number(r.t));
+  return here.length ? Number(here[here.length - 1].t) : Number(r.t);
+}
+function bookReport(r) {
+  const paras = (r.story || "").split(/\n\s*\n|\n/).filter((p) => p.trim());
+  const moments = (r.moments || "").split(/\n/).filter((p) => p.trim());
+  const shots = list(images[String(r.id)]).slice(0, 3);
+  const verdict = r.winner === "Draw" ? "A hard-fought draw" : `Victory for ${r.winner === "Good" ? "the Free Peoples" : "the Shadow"}`;
+  return `<div class="brep ${(r.winner || "").toLowerCase()}"><div class="bk">Battle report &middot; ${esc(terrName(r.n))}${r.scenario ? " &middot; " + esc(r.scenario) : ""}</div>
+    <h3>${esc(r.title || "Untitled battle")}</h3>
+    <div class="bforces"><span class="g">${esc(r.good || "The Free Peoples")}</span><i>against</i><span class="e">${esc(r.evil || "the Shadow")}</span></div>
+    <div class="bverdict">${esc(verdict)}${r.result ? " &middot; " + esc(r.result) : ""}</div>
+    ${shots.length ? `<div class="bshots n${shots.length}">${shots.map((x) => `<img src="${x.src}" alt="">`).join("")}</div>` : ""}
+    ${paras.map((p) => `<p>${esc(p)}</p>`).join("")}
+    ${moments.length ? `<div class="bmom"><b>Key moments</b><ul>${moments.map((m) => `<li>${esc(m)}</li>`).join("")}</ul></div>` : ""}
+    ${r.hero || r.cas ? `<div class="bfacts">${r.hero ? `<span><b>Hero of the battle</b> ${esc(r.hero)}</span>` : ""}${r.cas ? `<span><b>Casualties</b> ${esc(r.cas)}</span>` : ""}</div>` : ""}
+    ${r.author ? `<div class="bby">Written by ${esc(r.author)}</div>` : ""}</div>`;
+}
+function bookHtml() {
+  const th = state.theatre || "Eriador", title = THEATRE_TITLE[th] || th;
+  const first = frames[0], last = frames[frames.length - 1];
+  const reports = list(state.reports), used = new Set();
+  const fallen = computeFallen();
+  // the turns, in order, with what changed in each
+  const turns = [];
+  for (let i = 1; i < frames.length; i++) {
+    const prev = frames[i - 1], next = frames[i];
+    const turn = next.live && next.t === prev.t ? next.t : prev.t;
+    const items = timelineFor(prev, next, turn).filter(([, it]) => !(it && it.html)).map(([side, it]) => ({ side, text: typeof it === "string" ? it : it.txt }));
+    let swing = 0, capital = false;
+    for (let k = 0; k < next.owners.length; k++) if (prev.owners[k] !== next.owners[k]) { swing++; if (k + 1 === (state.caps || {}).Good || k + 1 === (state.caps || {}).Evil) capital = true; }
+    turns.push({ turn, prev, next, disp: dispatchFor(prev, next), items, swing, capital, battles: list(state.battles).filter((b) => b.t === turn).length });
+  }
+  // maps at the turning points: a capital falls, or the most land changes hands (a few, spread out), and the last turn
+  const ranked = turns.map((t, i) => ({ i, score: (t.capital ? 100 : 0) + t.swing * 10 + t.battles * 3 })).filter((x) => x.score >= 20).sort((a, b) => b.score - a.score);
+  const mapAt = new Set();
+  for (const x of ranked) { if (mapAt.size >= 5) break; if ([...mapAt].every((j) => Math.abs(j - x.i) >= 2)) mapAt.add(x.i); }
+  if (turns.length) mapAt.add(turns.length - 1);
+  let body = "", quiet = [];
+  const flushQuiet = () => { if (!quiet.length) return; body += `<p class="bquiet">${quiet.length > 1 ? `Turns ${quiet[0]} to ${quiet[quiet.length - 1]} passed` : `Turn ${quiet[0]} passed`} with little to tell: armies marched and the realms gathered their strength.</p>`; quiet = []; };
+  turns.forEach((T, i) => {
+    const reps = reports.filter((r) => bookReportTurn(r) === Number(T.turn) && !used.has(r.id));
+    if ((!T.disp || T.disp.quiet) && !reps.length && !mapAt.has(i) && T.items.length <= 2) { quiet.push(T.turn); return; }
+    flushQuiet();
+    const d = T.disp && !T.disp.quiet ? T.disp : { title: "A turn of marching and making ready", lines: [] };
+    const prose = d.lines.map((l) => l.text).join(" ");
+    const rest = T.items.filter((it) => !prose.includes(it.text.replace(/\.$/, "")));
+    body += `<section class="bturn"><div class="bk">Turn ${esc(T.turn)}</div><h2 class="${(d.side || "").toLowerCase()}">${esc(d.title)}</h2>
+      ${prose ? `<p class="lead">${esc(prose)}</p>` : ""}
+      ${rest.length ? `<ul class="bitems">${rest.map((it) => `<li class="${(it.side || "").toLowerCase()}">${esc(it.text)}</li>`).join("")}</ul>` : ""}
+      ${mapAt.has(i) ? bookMapFig(T.next, T.turn, i === turns.length - 1 ? (T.next.live ? `The lands as they stand, turn ${T.next.t}` : `The lands after turn ${T.turn}`) : `The lands after turn ${T.turn}`) : ""}
+      ${reps.map((r) => { used.add(r.id); return bookReport(r); }).join("")}</section>`;
+  });
+  flushQuiet();
+  // reports that belong to no turn shown above
+  const loose = reports.filter((r) => !used.has(r.id));
+  if (loose.length) body += `<section class="bturn"><div class="bk">From the field</div><h2>Further reports</h2>${loose.map(bookReport).join("")}</section>`;
+  // the heroes, the fallen, and the armies' records
+  const tally = {};
+  reports.forEach((r) => { const h = (r.hero || "").trim(); if (!h) return; const k = h.toLowerCase(); (tally[k] = tally[k] || { name: h, n: 0, b: [] }).n++; tally[k].b.push(r.title || terrName(r.n)); });
+  const heroes = Object.values(tally).sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
+  const rec = {};
+  list(state.battles).forEach((b) => fightersOf(b).forEach((x) => { if (x.id == null) return; const r = rec[x.id] = rec[x.id] || { side: x.s, w: 0, l: 0, nm: x.nm || ("Army " + x.id) }; if (b.win === x.s) r.w++; else r.l++; }));
+  frames.forEach((f) => f.a.forEach((a) => { if (rec[a.id] && a.nm) rec[a.id].nm = a.nm; }));
+  const recs = Object.values(rec).sort((a, b) => (b.w - b.l) - (a.w - a.l) || b.w - a.w).slice(0, 16);
+  const bs = list(state.battles), wins = { Good: 0, Evil: 0 }; bs.forEach((b) => { if (wins[b.win] !== undefined) wins[b.win]++; });
+  let back = "";
+  if (heroes.length) back += `<section class="bpage"><div class="bk">Remembered in song</div><h2>The Heroes of the War</h2><ol class="bheroes">${heroes.slice(0, 12).map((h) => `<li><b>${esc(h.name)}</b><span>${h.n} battle${h.n === 1 ? "" : "s"}: ${h.b.map(esc).join(" &middot; ")}</span></li>`).join("")}</ol></section>`;
+  if (fallen.length && !state.hidden) back += `<section class="bpage${heroes.length ? " flow" : ""}"><div class="bk">In memoriam</div><h2>The Fallen</h2><div class="bfallen">${fallen.map((x) => `<div class="${x.side.toLowerCase()}"><b>${esc(fallenName(x))}</b><span>${esc(x.side)}${x.size ? " &middot; " + x.size + " pts" : ""}${x.leader ? " &middot; led by " + esc(x.leader) : ""}</span><span>Fell at ${esc(terrName(x.n))} on turn ${x.t}${x.killer ? ", to " + esc(x.killer) : ""}${fallenLasted(x) ? `, after ${fallenLasted(x)} turn${fallenLasted(x) === 1 ? "" : "s"} in the field` : ""}.</span></div>`).join("")}</div></section>`;
+  if (recs.length && !state.hidden) back += `<section class="bpage flow"><div class="bk">The roll of arms</div><h2>Records of the Armies</h2><p class="bnote">${bs.length} battle${bs.length === 1 ? "" : "s"} fought: Good won ${wins.Good}, Evil won ${wins.Evil}.</p><table class="brec"><thead><tr><th>Army</th><th>Side</th><th>Won</th><th>Lost</th></tr></thead><tbody>${recs.map((r) => `<tr><td>${esc(r.nm)}</td><td class="${r.side.toLowerCase()}">${esc(r.side)}</td><td>${r.w}</td><td>${r.l}</td></tr>`).join("")}</tbody></table></section>`;
+  // the ending
+  const w = state.winner, V = w && V_SIDE[w];
+  const st = w ? victoryStats() : null, now = bookOwnersCount(last);
+  const end = w ? `<section class="bend" style="--vc:${V.c}">${victoryCrest(w)}<div class="bk">The war in ${esc(title)} is over</div><h2>${V.title}</h2><p class="who">${esc(w)} wins the campaign</p>
+      ${state.winnerNote ? `<p class="bnote">${esc(state.winnerNote)}</p>` : ""}<div class="bstats"><div><b>${st.turns}</b>Turns</div><div><b>${st.held}/${st.total}</b>Lands held</div><div><b>${st.won}</b>Battles won</div><div><b>${st.fought}</b>Battles fought</div></div>${bookMapFig(last, null, "The lands at the war's end")}</section>`
+    : `<section class="bend"><div class="bk">To be continued</div><h2>The War Goes On</h2><p class="who">Turn ${esc(state.turn)}: Good holds ${now.Good} lands, Evil ${now.Evil}${now.Neutral ? ", and " + now.Neutral + " stand free" : ""}.</p><p class="bnote">This chronicle tells the war so far. Make the book again when the last battle is fought.</p></section>`;
+  const firstC = bookOwnersCount(first);
+  const crestG = emblemSvg ? emblemSvg("Good", 64) : "", crestE = emblemSvg ? emblemSvg("Evil", 64) : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>The Chronicle of the War in ${esc(title)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Cinzel+Decorative:wght@700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+@page { size: A4; margin: 16mm 16mm 17mm; background: #f3e6c4; }
+:root { --ink:#2b2014; --gold:#8c6a26; --good:${COLORS.Good}; --evil:${COLORS.Evil}; --paper:#f3e6c4; }
+* { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+html, body { background: var(--paper); color: var(--ink); margin: 0; }
+body { font: 11.5pt/1.5 "EB Garamond", Georgia, serif; }
+.sheet { max-width: 210mm; margin: 0 auto; padding: 8mm 16mm; }
+@media print { body { padding: 0; } .sheet { max-width: none; padding: 0; } }
+.pgpad { display: none; }
+h1, h2, h3, .bk { font-family: Cinzel, serif; font-weight: 700; margin: 0; }
+.bk { font-size: 8.5pt; letter-spacing: .24em; text-transform: uppercase; color: var(--gold); }
+h2 { font-size: 17pt; line-height: 1.2; margin: 3pt 0 8pt; text-wrap: balance; }
+h2.good { color: var(--good); } h2.evil { color: var(--evil); }
+.orn { text-align: center; color: var(--gold); letter-spacing: .6em; margin: 10pt 0; }
+.cover { height: 255mm; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; border: 2px solid var(--gold); outline: 1px solid var(--gold); outline-offset: 5px; padding: 18mm; page-break-after: always; break-after: page; }
+.cover h1 { font-family: "Cinzel Decorative", Cinzel, serif; font-size: 30pt; line-height: 1.15; margin: 8pt 0 6pt; }
+.cover .sub { font-style: italic; font-size: 14pt; }
+.cover .crests { display: flex; gap: 22mm; margin: 14mm 0 8mm; } .cover .crests svg { width: 26mm; height: 26mm; }
+.cover .meta { font-family: Cinzel, serif; font-size: 10pt; letter-spacing: .14em; margin-top: 10mm; }
+.prologue { page-break-after: always; break-after: page; }
+.prologue p.lead::first-letter, .bturn p.lead::first-letter { font-family: "Cinzel Decorative", serif; float: left; font-size: 34pt; line-height: .9; padding: 3pt 5pt 0 0; color: var(--evil); }
+.bturn { margin: 0 0 14pt; padding-top: 6pt; border-top: 1px solid rgba(140,106,38,.45); }
+.bturn > h2, .bturn > .bk { break-after: avoid; page-break-after: avoid; }
+.bitems { margin: 4pt 0 8pt 0; padding-left: 14pt; font-size: 10.5pt; } .bitems li { margin: 1pt 0; }
+.bitems li.good::marker { color: var(--good); } .bitems li.evil::marker { color: var(--evil); }
+.bquiet { font-style: italic; text-align: center; color: #6a5634; margin: 10pt 0; }
+figure.bmap { margin: 10pt 0; break-inside: avoid; page-break-inside: avoid; }
+figure.bmap svg { width: 100%; height: auto; display: block; border: 1.5px solid #3a2a14; box-shadow: 0 0 0 3px var(--paper), 0 0 0 4px var(--gold); }
+figure.bmap figcaption { font-family: Cinzel, serif; font-size: 9pt; letter-spacing: .08em; text-align: center; margin-top: 6pt; }
+figure.bmap figcaption span { display: block; font-family: "EB Garamond", serif; letter-spacing: 0; font-style: italic; font-size: 9.5pt; color: #6a5634; }
+.brep { margin: 12pt 0; padding: 10pt 12pt; border: 1px solid rgba(140,106,38,.6); background: rgba(255,250,235,.45); break-inside: avoid-page; }
+.brep.good { border-left: 4px solid var(--good); } .brep.evil { border-left: 4px solid var(--evil); }
+.brep h3 { font-size: 13pt; margin: 2pt 0 4pt; }
+.bforces { font-family: Cinzel, serif; font-size: 9.5pt; } .bforces i { font-family: "EB Garamond", serif; margin: 0 6pt; color: #6a5634; }
+.bforces .g { color: var(--good); } .bforces .e { color: var(--evil); }
+.bverdict { font-style: italic; margin: 2pt 0 6pt; }
+.bshots { display: grid; gap: 4pt; margin: 6pt 0; } .bshots.n2 { grid-template-columns: 1fr 1fr; } .bshots.n3 { grid-template-columns: 1fr 1fr 1fr; }
+.bshots img { width: 100%; height: auto; max-height: 75mm; object-fit: cover; border: 1px solid #3a2a14; }
+.brep p { margin: 4pt 0; text-align: justify; hyphens: auto; }
+.bmom { font-size: 10.5pt; } .bmom ul { margin: 2pt 0; padding-left: 14pt; }
+.bfacts { display: flex; gap: 14pt; flex-wrap: wrap; font-size: 10pt; margin-top: 4pt; } .bfacts b { font-family: Cinzel, serif; font-size: 8pt; letter-spacing: .12em; margin-right: 4pt; color: var(--gold); }
+.bby { font-family: Cinzel, serif; font-size: 7.5pt; letter-spacing: .16em; color: #6a5634; margin-top: 4pt; text-align: right; }
+.bpage { page-break-before: always; break-before: page; } .bpage.flow { page-break-before: auto; break-before: auto; margin-top: 18pt; }
+.bheroes { padding-left: 18pt; } .bheroes li { margin: 4pt 0; } .bheroes li b { font-family: Cinzel, serif; } .bheroes li span { display: block; font-size: 10pt; color: #6a5634; }
+.bfallen { columns: 2; column-gap: 10mm; } .bfallen > div { break-inside: avoid; margin: 0 0 7pt; padding-left: 6pt; border-left: 3px solid var(--gold); }
+.bfallen > div.good { border-color: var(--good); } .bfallen > div.evil { border-color: var(--evil); }
+.bfallen b { font-family: Cinzel, serif; font-size: 10pt; display: block; } .bfallen span { display: block; font-size: 9.5pt; }
+.brec { width: 100%; border-collapse: collapse; font-size: 10pt; } .brec th { font-family: Cinzel, serif; font-size: 8pt; letter-spacing: .14em; text-align: left; border-bottom: 1.5px solid var(--ink); padding: 3pt; }
+.brec td { border-bottom: 1px solid rgba(140,106,38,.35); padding: 3pt; } .brec td.good { color: var(--good); } .brec td.evil { color: var(--evil); }
+.bnote { font-style: italic; color: #6a5634; }
+.bend { page-break-before: always; break-before: page; text-align: center; padding-top: 10mm; }
+.bend .crest { width: 30mm; height: 30mm; } .bend h2 { font-family: "Cinzel Decorative", serif; font-size: 24pt; color: var(--vc, var(--ink)); }
+.bend .who { font-family: Cinzel, serif; letter-spacing: .1em; }
+.bstats { display: flex; justify-content: center; gap: 12mm; margin: 8mm 0; font-family: Cinzel, serif; font-size: 8pt; letter-spacing: .14em; text-transform: uppercase; }
+.bstats b { display: block; font-size: 20pt; letter-spacing: 0; }
+.hint { font: 13px/1.4 system-ui, sans-serif; background: #2b2014; color: #f3e6c4; padding: 10px 14px; text-align: center; }
+.hint button { font: inherit; margin-left: 10px; padding: 5px 12px; background: #c9a24a; border: 0; border-radius: 3px; cursor: pointer; }
+@media print { .hint { display: none; } }
+@media print { .cover { height: 250mm; margin-top: 4mm; } }
+</style></head><body>
+<div class="hint">Your chronicle is ready. In the print window choose <b>Save as PDF</b> (turn on <b>Background graphics</b> for the parchment). <button onclick="print()">Print or save</button></div>
+<div class="sheet">
+<div class="cover"><div class="bk">A chronicle of the War in Middle-earth</div><h1>The War in ${esc(title)}</h1>
+  <div class="sub">${state.winner ? `How ${state.winner === "Good" ? "the Free Peoples" : "the Shadow"} won the day` : "As it has been told so far"}</div>
+  <div class="crests">${crestG}${crestE}</div><div class="orn">&#10022; &#10022; &#10022;</div>
+  <div class="meta">${frames.length > 1 ? `Turns ${esc(first.t)} to ${esc(last.t)}` : `Turn ${esc(state.turn)}`} &middot; ${bs.length} battle${bs.length === 1 ? "" : "s"} &middot; ${reports.length} report${reports.length === 1 ? "" : "s"}</div></div>
+<section class="prologue"><div class="bk">Prologue</div><h2>The Lands at the Outset</h2>
+  <p class="lead">When the war began, the Free Peoples held ${firstC.Good} of the lands of ${esc(title)} and the Shadow held ${firstC.Evil}${firstC.Neutral ? `, while ${firstC.Neutral} stood apart and waited to see which way the wind would blow` : ""}.${(state.caps || {}).Good ? ` Good ruled from ${esc(terrName(state.caps.Good))}` : ""}${(state.caps || {}).Evil ? `, and Evil from ${esc(terrName(state.caps.Evil))}` : ""}.</p>
+  ${bookMapFig(first, null, "The lands at the outset")}</section>
+${body}
+${back}
+${end}
+<div class="orn">&#10022; &#10022; &#10022;</div></div>
+<scr${""}ipt>document.fonts.ready.then(() => { const imgs = [...document.images]; Promise.all(imgs.map((i) => i.complete ? 1 : new Promise((r) => { i.onload = i.onerror = r; }))).then(() => setTimeout(() => print(), 400)); });<\/script>
+</body></html>`;
+}
+function makeBook() {
+  if (!state) return;
+  const w = window.open("", "_blank");
+  if (!w) { const m = $("recMsg"); if (m) m.textContent = "Allow pop-ups for this page to open the book."; return; }
+  w.document.open(); w.document.write(bookHtml()); w.document.close();
+}
 function renderStanding(f) {
   const count = { Good: 0, Evil: 0, Neutral: 0 };
   for (const ch of f.owners) count[OWN[ch] || "Neutral"]++;
@@ -3549,6 +3738,7 @@ $("closeSheet").addEventListener("click", closeSheet);
 $("sheetWrap").addEventListener("click", (e) => { if (e.target === $("sheetWrap")) closeSheet(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("sheetWrap").hidden) closeSheet(); });
 
+$("bookBtn").addEventListener("click", makeBook);
 $("saveImg").addEventListener("click", async () => {
   const msg = $("saveMsg");
   if ((!downloads && !ON_SITE) || typeof html2canvas === "undefined") { msg.textContent = "Saving images isn't available in this view."; return; }
