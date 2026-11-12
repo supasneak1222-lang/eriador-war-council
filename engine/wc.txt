@@ -965,6 +965,9 @@ function endOfTurn()
       clog(tname(n) .. " can't be taken this turn (Easterling Greed)" .. (t.conq and t.conq.by == attacker and (": the conquest stays at " .. (t.conq.prog or 0) .. "/" .. (t.conq.need or "?")) or "") .. ".", nil, "territories")
     elseif attacker and t.owner == "Good" and S.peasants == S.turn then
       clog(tname(n) .. " holds out this turn (Peasants' Pride)" .. (t.conq and t.conq.by == attacker and (": the conquest stays at " .. (t.conq.prog or 0) .. "/" .. (t.conq.need or "?")) or "") .. ".", nil, "territories")
+    elseif attacker == "Evil" and galadrielGuard and galadrielGuard(n) then
+      clog(tname(n) .. " can't be taken while the Protection of Galadriel holds: Evil must first defeat its garrison.", nil, "territories")
+      t.conq = nil
     elseif attacker and shield[n] then
       if not t.conq or t.conq.prog > 0 or not t.conq.held then
         clog(tname(n) .. " can't be conquered while the fortress at " .. tname(shield[n]) .. " holds.", nil, "territories")
@@ -1837,40 +1840,49 @@ end
 function noteSieges()
   if not S.started then return end
   for n, t in ipairs(S.terr) do
-    local besieged = t.b.fort and t.owner ~= "Neutral" and #armiesIn(n, OTHER[t.owner]) > 0
+    local fs = fortSide(n)
+    local besieged = t.b.fort and fs and #armiesIn(n, OTHER[fs]) > 0
     if besieged and not t.siegeT then
       t.siegeT = S.turn
       t.siegeDef = {}   -- the owner's armies already inside when the siege began
-      for _, a in ipairs(armiesIn(n, t.owner)) do t.siegeDef[tostring(a.id)] = true end
-      clog(OTHER[t.owner] .. " lays siege to " .. tname(n) .. ": the assault comes on turn " .. (S.turn + 1) .. ".", nil, "territories")
+      for _, a in ipairs(armiesIn(n, fs)) do t.siegeDef[tostring(a.id)] = true end
+      clog(OTHER[fs] .. " lays siege to " .. tname(n) .. ": the assault comes on turn " .. (S.turn + 1) .. ".", nil, "territories")
     elseif not besieged and t.siegeT then
       t.siegeT = nil; t.siegeDef = nil
     end
   end
 end
+-- The side a territory's Fortifications fight for: its owner, or (in the North) Good for Lothlórien while Galadriel protects it.
+function fortSide(n)
+  local t = S.terr[n]
+  if not t then return nil end
+  if t.owner ~= "Neutral" then return t.owner end
+  if galadrielGuard and galadrielGuard(n) then return "Good" end
+  return nil
+end
 -- true when territory n's siege may be fought this turn (or it isn't a siege at all)
 function siegeReady(n)
   local t = S.terr[n]
-  if not (t.b.fort and t.owner ~= "Neutral") then return true end
+  if not (t.b.fort and fortSide(n)) then return true end
   if reliefBattle(n) then return true end
   return t.siegeT ~= nil and t.siegeT < S.turn
 end
 -- An army of the owner's that marches on the besiegers the turn the siege begins fights them in an ordinary battle, then and there.
 function reliefBattle(n)
   local t = S.terr[n]
-  if not (t.siegeT and t.siegeT == S.turn and t.owner ~= "Neutral") then return false end
+  if not (t.siegeT and t.siegeT == S.turn and fortSide(n)) then return false end
   for _, a in ipairs(armiesIn(n, t.owner)) do if not (t.siegeDef or {})[tostring(a.id)] then return true end end
   return false
 end
 -- Is a battle at n a Siege? (a fortress held by a side, and not a relieving army's battle)
 function siegeBattle(n)
   local t = S.terr[n]
-  return (t.b.fort and t.owner ~= "Neutral" and not reliefBattle(n)) and true or false
+  return (t.b.fort and fortSide(n) and not reliefBattle(n)) and true or false
 end
 -- An army besieging a fortress: it may lift the siege, but then moves at most 1 territory that turn.
 function besieging(a)
   local t = a and a.loc and S.terr[a.loc]
-  return (t and t.b.fort and t.owner == OTHER[a.side] and t.siegeT) and true or false
+  return (t and t.b.fort and fortSide(a.loc) == OTHER[a.side] and t.siegeT) and true or false
 end
 
 function battleTerritories()
@@ -1878,7 +1890,8 @@ function battleTerritories()
   local out = {}
   for n, t in ipairs(S.terr) do
     local g, e = #armiesIn(n, "Good") > 0, #armiesIn(n, "Evil") > 0
-    local garrison = t.b.fort and t.owner ~= "Neutral" and #armiesIn(n, OTHER[t.owner]) > 0
+    local fs = fortSide(n)
+    local garrison = t.b.fort and fs and #armiesIn(n, OTHER[fs]) > 0
     if ((g and e) or garrison) and siegeReady(n) and not (S.bilboSkip and S.bilboSkip[n] == S.turn) then table.insert(out, n) end
   end
   return out
@@ -1889,17 +1902,18 @@ function battleModifiers(n, atk, def)
   local lines = {}
   local prio = { Good = 0, Evil = 0 }
   if reliefBattle(n) then
-    table.insert(lines, t.owner .. " marches on the besiegers the turn the siege began: an ordinary battle, not a Siege (no garrison). If " .. OTHER[t.owner] .. " loses, the siege is lifted and it retreats as normal.")
+    local fo = fortSide(n) or t.owner
+    table.insert(lines, fo .. " marches on the besiegers the turn the siege began: an ordinary battle, not a Siege (no garrison). If " .. OTHER[fo] .. " loses, the siege is lifted and it retreats as normal.")
   end
   if siegeBattle(n) then
-    table.insert(lines, "Fortifications: this is a SIEGE. " .. t.owner .. " gains a " .. garrisonSize(n) .. " pt garrison" .. (((t.fortup or 0) > 0) and (" (" .. t.fortup .. " Fortress Upgrade" .. (t.fortup == 1 and "" or "s") .. ")") or ((garrisonSize(n) > 400) and " (The Hornburg)" or "")) .. ".")
+    table.insert(lines, "Fortifications: this is a SIEGE. " .. (fortSide(n) or t.owner) .. " gains a " .. garrisonSize(n) .. " pt garrison" .. (((t.fortup or 0) > 0) and (" (" .. t.fortup .. " Fortress Upgrade" .. (t.fortup == 1 and "" or "s") .. ")") or ((garrisonSize(n) > 400) and " (The Hornburg)" or "")) .. ".")
     -- siege supplies: RP for siege equipment only, this battle
     local ints = function(sz) return math.max(1, math.floor(((sz or 400) - 200) / 200)) end
-    local foe, atkRP, parts = OTHER[t.owner], 0, {}
+    local foe, atkRP, parts = OTHER[fortSide(n) or t.owner], 0, {}
     for _, x in ipairs(armiesIn(n, foe)) do local v = 20 * ints(x.size); atkRP = atkRP + v; table.insert(parts, x.name .. " " .. v) end
     local defRP = 30 * ints(garrisonSize(n))
     table.insert(lines, "Siege supplies (points for siege equipment only): " .. foe .. " " .. atkRP .. " pts" .. ((#parts > 1) and (" (" .. table.concat(parts, ", ") .. ")") or "") ..
-         "; " .. t.owner .. " " .. defRP .. " pts from its " .. garrisonSize(n) .. " pt garrison.")
+         "; " .. (fortSide(n) or t.owner) .. " " .. defRP .. " pts from its " .. garrisonSize(n) .. " pt garrison.")
   end
   if t.b.scouttower and t.owner ~= "Neutral" then
     prio[t.owner] = prio[t.owner] + 1
@@ -1960,7 +1974,7 @@ function revealBattles(only)
       local t = S.terr[n]
       for _, a in ipairs(armiesIn(n)) do
         local foe = OTHER[a.side]
-        if #armiesIn(n, foe) > 0 or (t.b.fort and t.owner == foe) then revealArmyTo(a, foe, n) end
+        if #armiesIn(n, foe) > 0 or (t.b.fort and fortSide(n) == foe) then revealArmyTo(a, foe, n) end
       end
     end
   end
@@ -2117,7 +2131,8 @@ function applyBattle(p)
   -- what the battle does to a conquest under way here (judged as it stood when the battle was fought)
   local terr = S.terr[n]
   local cq = terr.conq
-  local WS = W and W.side or terr.owner                 -- the garrison wins for the territory's owner
+  local WS = W and W.side or fortSide(n) or terr.owner   -- the garrison wins for the side it fights for
+  if W and W.side == "Evil" and galadrielGuard and galadrielGuard(n) then pcall(galadrielFalls, n) end
   local LS = Lz and Lz.side or nil
   local doubleDrop = cq and LS and cq.by == LS and terr.owner == WS
   -- the winners share what they capture, the lead army first
@@ -3563,6 +3578,8 @@ THEATRE_RULES.North = {
     text = "Once Erebor's City has all three upgrades, Evil rolls a D6 at the start of every Logistics stage: on a 3+ the Desolators of the North, a unique 700 point army, appear in Erebor. They follow the rules for an 800 point army, but always move 3, gain nothing from Roads and can never have their movement hindered. They don't count against Evil's Point Cap." },
   { key = "anduin", name = "River Travel",
     text = "An army in a territory on the Anduin, the Long Lake, the River Running or the Sea of Rhûn may pay 25 RP per territory, from the RP it carries, to sail up to 4 territories along the shore. Sailing uses 1 point of its movement. It may instead cross the Anduin to a territory on the far bank for a flat 75 RP, which ends its movement." },
+  { key = "galadriel", name = "Protection of Galadriel",
+    text = "Lothlórien starts Neutral but with Fortifications and two Fortress Upgrades (an 800 point garrison). Evil can't conquer it until it has defeated that garrison in a Siege, with the garrison fighting for Good. Good conquers it as normal, without fighting the garrison." },
 }
 THEATRE_RULES.Gondor = {
   { key = "established", name = "Established Power",
@@ -3779,6 +3796,15 @@ function rulesAtStart()
     local got = {}
     for _, nm in ipairs(NORTH.forts) do local n = terrByName(nm); if n then if not S.terr[n].b.fort then S.terr[n].b.fort = true; pieceHook("built", n, "fort") end; table.insert(got, nm) end end
     if #got > 0 then clog("Protected Lands: " .. table.concat(got, ", ") .. " begin with Fortifications.") end
+  end
+  if theatreRule("galadriel") then   -- Protection of Galadriel
+    local n = terrByName(NORTH.lorien)
+    if n then
+      local t = S.terr[n]
+      if not t.b.fort then t.b.fort = true; pieceHook("built", n, "fort") end
+      t.fortup = math.max(t.fortup or 0, 2)
+      clog("Protection of Galadriel: " .. NAMES[n] .. " stands Neutral behind Fortifications with an " .. garrisonSize(n) .. " point garrison that fights Evil for Good.")
+    end
   end
   if hasRule("Evil", "whitehand") then
     local cap = S.settings.capEvil
@@ -4086,6 +4112,17 @@ function eorlingas(n)
   pieceHook("created", "army", a)
   clog("Forth Eorlingas! A free 600 point Kingdom of Rohan army rides out at " .. tname(n) .. ", ready at once. It takes no Heroes but a Captain of Rohan.", nil, "armies")
   return true
+end
+-- Protection of Galadriel: Lothlórien's garrison fights Evil for Good until Evil beats it
+function galadrielGuard(n)
+  if not theatreRule("galadriel") or S.galadrielFallen then return false end
+  local t = S.terr[n]
+  return t and t.owner == "Neutral" and t.b.fort and NAMES[n] == NORTH.lorien and true or false
+end
+function galadrielFalls(n)
+  if S.galadrielFallen then return end
+  S.galadrielFallen = true
+  clog("The Protection of Galadriel is broken: Evil has defeated the garrison of " .. tname(n) .. " and may now conquer it.", nil, "territories")
 end
 -- I'm a Burglar: Bilbo's army is never forced to fight
 function bilboLed(a) return a and string.find(string.lower(a.leader or ""), "bilbo", 1, true) ~= nil end
