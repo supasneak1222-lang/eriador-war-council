@@ -3554,7 +3554,7 @@ THEATRE_RULES = {
 }
 THEATRE_RULES.North = {
   { key = "shattered", name = "Shattered Alliances",
-    text = "Good can't raise Woodland Realm armies until it has taken Thranduil's Halls, or Iron Hills armies until it has taken the Iron Hills." },
+    text = "Good can't raise Woodland Realm armies until it has taken Thranduil's Halls, Iron Hills armies until it has taken the Iron Hills, or Lothlórien armies until it has taken Lothlórien." },
   { key = "mirkwood", name = "Dangers of Mirkwood",
     text = "Entering a Mirkwood territory costs 1 extra point of movement, except for Woodland Realm and Fell Beings of Mirkwood armies." },
   { key = "divided", name = "The North Divided",
@@ -3859,7 +3859,7 @@ end
 
 -- ===================================================================  The North
 -- the territories its rules name (the map is still being drawn: these are matched by name)
-NORTH = { erebor = "Erebor", esgaroth = "Esgaroth", halls = "Thranduil's Halls", ironhills = "Iron Hills",
+NORTH = { erebor = "Erebor", esgaroth = "Esgaroth", halls = "Thranduil's Halls", ironhills = "Iron Hills", lorien = "Lothlórien",
   forts = { "Dol Guldur", "Gundabad", "Mistrand" },
   mirkwood = { "Northern Mirkwood", "Enchanted River", "Thranduil's Halls", "Emyn Duir", "Old Forest Road", "Eastern Mirkwood", "Narrows of the Forest", "Dol Guldur", "Southern Mirkwood" } }
 local function northT(key) return terrByName(NORTH[key]) end
@@ -3882,6 +3882,9 @@ function shatteredBlocks(side, list)
   end
   if string.find(l, "iron hills", 1, true) and not (S.northIH or held("ironhills")) then
     return "Shattered Alliances: Good can't raise Iron Hills armies until it has taken the Iron Hills."
+  end
+  if (string.find(l, "lothl", 1, true) or string.find(l, "lorien", 1, true) or string.find(l, "lórien", 1, true) or string.find(l, "galadhrim", 1, true)) and not (S.northLL or held("lorien")) then
+    return "Shattered Alliances: Good can't raise Lothlórien armies until it has taken Lothlórien."
   end
   return nil
 end
@@ -4005,6 +4008,7 @@ function northConquered(n, owner)
   if owner ~= "Good" or not theatreRule("shattered") then return end
   if n == northT("halls") and not S.northWR then S.northWR = true; clog("Thranduil's Halls are taken: Good may now raise Woodland Realm armies.", nil, "armies") end
   if n == northT("ironhills") and not S.northIH then S.northIH = true; clog("The Iron Hills are taken: Good may now raise Iron Hills armies.", nil, "armies") end
+  if n == northT("lorien") and not S.northLL then S.northLL = true; clog("Lothlórien is taken: Good may now raise Lothlórien armies.", nil, "armies") end
   if hasRule("Good", "renewed") and S.northWR and S.northIH and not S.renewedDone then
     S.renewedDone = true
     local at = northT("erebor"); if not (at and S.terr[at].owner == "Good") then at = S.settings.capGood end
