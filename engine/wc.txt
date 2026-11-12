@@ -3579,7 +3579,7 @@ THEATRE_RULES.North = {
   { key = "anduin", name = "River Travel",
     text = "An army in a territory on the Anduin, the Long Lake, the River Running or the Sea of Rhûn may pay 25 RP per territory, from the RP it carries, to sail up to 4 territories along the shore. Sailing uses 1 point of its movement. It may instead cross the Anduin to a territory on the far bank for a flat 75 RP, which ends its movement." },
   { key = "galadriel", name = "Protection of Galadriel",
-    text = "Lothlórien starts Neutral but with Fortifications and two Fortress Upgrades (an 800 point garrison). Evil can't conquer it until it has defeated that garrison in a Siege, with the garrison fighting for Good. Good conquers it as normal, without fighting the garrison." },
+    text = "Lothlórien starts Neutral but with Fortifications and one Fortress Upgrade (a 600 point garrison). Evil can't conquer it until it has defeated that garrison in a Siege, with the garrison fighting for Good. Good conquers it as normal, without fighting the garrison." },
 }
 THEATRE_RULES.Gondor = {
   { key = "established", name = "Established Power",
@@ -3802,7 +3802,7 @@ function rulesAtStart()
     if n then
       local t = S.terr[n]
       if not t.b.fort then t.b.fort = true; pieceHook("built", n, "fort") end
-      t.fortup = math.max(t.fortup or 0, 2)
+      t.fortup = math.max(t.fortup or 0, 1)
       clog("Protection of Galadriel: " .. NAMES[n] .. " stands Neutral behind Fortifications with an " .. garrisonSize(n) .. " point garrison that fights Evil for Good.")
     end
   end
