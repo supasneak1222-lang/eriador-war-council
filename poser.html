@@ -258,8 +258,11 @@ async function openGlb(buf, name, save = true) {
   scene.add(fig); current = name; $('drop').hidden = true; $('right').hidden = false;
   buildMarkers(); renderBoneList(); select(null);
   const saved = save ? null : await dbGet('rigs', name).catch(() => null);
-  if (save) { await dbPut('rigs', { name, glb: buf, pose: null, at: Date.now() }).catch(() => {}); listModels(); }
+  // a model can carry a starting pose inside it (scene extras: poserPose)
+  const built = (g.scene.userData && g.scene.userData.poserPose) || (g.userData && g.userData.poserPose) || null;
+  if (save) { if (built) applyPose(built); await dbPut('rigs', { name, glb: buf, pose: built ? poseJson() : null, at: Date.now() }).catch(() => {}); listModels(); }
   else if (saved && saved.pose) applyPose(saved.pose);
+  else if (built) applyPose(built);
   $('facing').value = Math.round(THREE.MathUtils.radToDeg(fig.rotation.y)); $('facingO').textContent = $('facing').value + '°';
   fitFeet(); frame(); undoStack.length = 0;
 }
