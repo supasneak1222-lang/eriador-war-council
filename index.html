@@ -489,7 +489,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=80ea344d0c').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=9f79e2f47a').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -952,6 +952,7 @@ const MODEL_CACHE = {};
 const LEADER_PACKS = {};
 async function leaderGlb(id) {
   const l = LEADER_BY.get(id); if (!l) throw new Error('unknown figure ' + id);
+  if (l.local) { const f = await myFigGet(id); if (!f) throw new Error('figure ' + id + ' missing'); return f.glb; }
   if (!LEADER_PACKS[l.pack]) LEADER_PACKS[l.pack] = fetch('models/leaders/' + l.pack + '.json').then(r => { if (!r.ok) throw new Error('figure pack ' + l.pack); return r.json(); });
   const pack = await LEADER_PACKS[l.pack]; if (!pack[id]) throw new Error('figure ' + id + ' missing'); return pack[id];
 }
@@ -4649,10 +4650,27 @@ document.addEventListener('pointerover', (e) => { const b = e.target.closest && 
 function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeason(dt); stepSky(); }
 
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
-let LEADERS = [], LEADER_BY = new Map();
-fetch('models/leaders/index.json?v=80ea344d0c').then(r => r.ok ? r.json() : []).then(list => {
-  LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); if (S) { syncScene(); renderCard(); }
+let LEADERS = [], LEADER_BY = new Map(), BASE_LEADERS = [], MY_FIGS = [];
+function mergeLeaders() { LEADERS = [...MY_FIGS, ...BASE_LEADERS]; LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); try { if (S) { syncScene(); renderCard(); } if (figPick) renderFigGrid(); } catch (e) { /* the page is still starting */ } }
+fetch('models/leaders/index.json?v=9f79e2f47a').then(r => r.ok ? r.json() : []).then(list => {
+  BASE_LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); mergeLeaders();
 }).catch(() => {});
+// figures posed in the Figure Poser: kept in this browser only (never uploaded or sent to other players)
+const MYFIG_DB = 'eriador-figures';
+function myFigDb() { return myFigDb.p ||= new Promise((res, rej) => { const r = indexedDB.open(MYFIG_DB, 1); r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains('rigs')) d.createObjectStore('rigs', { keyPath: 'name' }); if (!d.objectStoreNames.contains('figures')) d.createObjectStore('figures', { keyPath: 'id' }); }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+function myFigGet(id) { return myFigDb().then(d => new Promise((res, rej) => { const q = d.transaction('figures').objectStore('figures').get(id); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); })); }
+async function loadMyFigures() {
+  try {
+    const d = await myFigDb();
+    const all = await new Promise((res, rej) => { const q = d.transaction('figures').objectStore('figures').getAll(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); });
+    const before = new Set(MY_FIGS.map(l => l.id));
+    MY_FIGS = all.sort((a, b) => b.made - a.made).map(f => ({ id: f.id, name: f.name, profile: f.name, side: f.side, origin: 'My figures', lists: [], thumb: f.thumb, local: true }));
+    for (const id of before) if (!all.some(f => f.id === id)) delete MODEL_CACHE['leaders/' + id];
+    mergeLeaders();
+  } catch (e) { /* no local store in this browser */ }
+}
+loadMyFigures();
+try { new BroadcastChannel('wc-figures').onmessage = () => loadMyFigures(); } catch (e) {}
 const OTHER_OF = { Good: 'Evil', Evil: 'Good' };
 const knownToEnemy = (a) => !S.settings.hidden || !!(a.seenLeader && a.seenLeader[OTHER_OF[a.side]]);
 // an army whose leader is hidden shows its theatre's captain
@@ -4702,12 +4720,12 @@ function openFigPicker({ side, leader, extra, current, title, onPick }) {
       <select id="fpO"><option value="">Every faction</option>${origins.map(o => `<option>${esc(o)}</option>`).join('')}</select>
       <label class="fp-side"><input type="checkbox" id="fpAll"> Show both sides</label></div>
     <div class="fp-body" id="fpBody"></div>
-    <div class="fp-foot"><button data-fp="none">No figure: keep the plain model</button><span class="fp-count" id="fpCount"></span></div></div>`;
+    <div class="fp-foot"><span><button data-fp="none">No figure: keep the plain model</button> <button data-fp="poser" title="Pose a rigged model of your own; it appears here under My figures">Pose your own figure…</button></span><span class="fp-count" id="fpCount"></span></div></div>`;
   el.hidden = false;
   const q = $('fpQ'), o = $('fpO'), all = $('fpAll');
   q.oninput = () => { figPick.q = q.value; renderFigGrid(); }; o.onchange = () => { figPick.origin = o.value; renderFigGrid(); };
   all.onchange = () => { figPick.both = all.checked; renderFigGrid(); };
-  el.querySelectorAll('[data-fp]').forEach(b => b.onclick = () => { if (b.dataset.fp === 'none') pickFig(''); else closeFigPicker(); });
+  el.querySelectorAll('[data-fp]').forEach(b => b.onclick = () => { if (b.dataset.fp === 'none') pickFig(''); else if (b.dataset.fp === 'poser') window.open('poser.html', '_blank'); else closeFigPicker(); });
   el.onclick = (e) => { if (e.target === el) closeFigPicker(); };
   renderFigGrid(); setTimeout(() => q.focus(), 50);
 }
@@ -4865,7 +4883,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=80ea344d0c').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=9f79e2f47a').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
