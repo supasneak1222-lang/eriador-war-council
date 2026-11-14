@@ -99,7 +99,7 @@ dialog .row{justify-content:flex-end}
     <div class="sl"><span>Y</span><input type="range" min="-180" max="180" step="1" id="ry"><output id="ryo"></output></div>
     <div class="sl"><span>Z</span><input type="range" min="-180" max="180" step="1" id="rz"><output id="rzo"></output></div>
   </div>
-  <div class="row"><button id="modeRot" class="on">Turn</button><button id="modeMove" title="Only the hips can be moved: lower them to crouch">Move hips</button></div>
+  <div class="row"><button id="modeRot" class="on">Turn</button><button id="modeMove" title="Drag the hips, a weapon, or a piece of cloth, gear, cloak or hair to a new place (other joints still turn)">Move</button></div>
   <div class="row"><button id="resetBone">Reset joint</button><button id="mirror" title="Copy this side's pose onto the other side">Mirror to other side</button></div>
   <div id="handBox" hidden>
     <h3>Hand</h3>
@@ -116,6 +116,7 @@ dialog .row{justify-content:flex-end}
     <div class="sl" title="Slide the weapon up or down through the fist"><span>↕</span><input type="range" min="-100" max="100" step="1" value="0" id="wSlide"><output id="wSlideO"></output></div>
     <div class="sl" title="Roll the weapon about its own length"><span>↻</span><input type="range" min="-180" max="180" step="1" value="0" id="wRoll"><output id="wRollO"></output></div>
     <div class="row"><button id="wSeat" title="Close the fist and put the grip through the middle of it">Seat in the fist</button><button id="wReset">Reset weapon</button></div>
+    <div class="row"><button id="wMove" title="Drag the weapon anywhere with the arrows (Turn mode puts the rings back)">Move it freely</button></div>
     <div class="row"><button id="wTwo" title="The other hand grips the weapon too, and stays on it as you pose">Other hand on it</button></div>
     <div class="sl" title="Where the other hand holds it, from the end to the tip"><span>✋</span><input type="range" min="0" max="100" step="1" value="30" id="wTwoAt"><output id="wTwoAtO"></output></div>
     <label title="For bows: a string from both tips to the other hand"><input type="checkbox" id="wString"> Bowstring drawn to the other hand</label>
@@ -288,15 +289,16 @@ function renderBoneList() {
 function select(b) {
   if (tools.reach) stopReach();
   sel = b || null;
-  const target = isWeapon(sel) && wristMode ? handOf(sel) || sel : sel;
-  if (target) { tcon.attach(target); tcon.setMode(moveMode && sel === rootBone() ? 'translate' : 'rotate'); } else tcon.detach();
+  const moving = moveMode && movable(sel);
+  const target = moving ? sel : isWeapon(sel) && wristMode ? handOf(sel) || sel : sel;
+  if (target) { tcon.attach(target); tcon.setMode(moving ? 'translate' : 'rotate'); tcon.setSpace(moving ? 'world' : 'local'); } else tcon.detach();
   const sd = sideOf(sel);
   $('handBox').hidden = !(sel && /^(L|R) (Hand|Finger)/.test(sel.name));
   $('footBox').hidden = !(sel && /^(L|R) (Foot|Toe|Shin)/.test(sel.name));
   $('wpnBox').hidden = !isWeapon(sel);
   if (sd) { $('gripAmt').value = tools.grip[sd] || 0; $('gripO').textContent = (tools.grip[sd] || 0) + '%'; }
   if (isWeapon(sel)) { $('wTwo').textContent = tools.two && tools.two.w === sel.name ? 'Let go with the other hand' : 'Other hand on it'; $('wString').checked = !!(tools.string && tools.string.w === sel.name); $('wTwoAt').value = Math.round((tools.two && tools.two.w === sel.name ? tools.two.f : 0.3) * 100); $('wTwoAtO').textContent = $('wTwoAt').value + '%'; }
-  $('selName').textContent = sel ? sel.name + (isWeapon(sel) && wristMode ? ' (turning the ' + sideOf(sel) + ' wrist)' : '') : 'Click the figure or a joint';
+  $('selName').textContent = sel ? sel.name + (moving ? ' (moving: drag the arrows)' : isWeapon(sel) && wristMode ? ' (turning the ' + sideOf(sel) + ' wrist)' : '') : 'Click the figure or a joint';
   $('rotBox').style.opacity = sel ? 1 : 0.4; for (const k of ['rx', 'ry', 'rz', 'resetBone', 'mirror']) $(k).disabled = !sel;
   $('mirror').disabled = !sel || !/^(L|R) /.test(sel.name);
   $('bones').querySelectorAll('[data-b]').forEach(el => el.classList.toggle('on', sel && el.dataset.b === sel.uuid));
@@ -320,10 +322,12 @@ for (const k of ['rx', 'ry', 'rz']) {
   $(k).addEventListener('change', afterEdit);
 }
 let moveMode = false;
-$('modeRot').onclick = () => { moveMode = false; $('modeRot').classList.add('on'); $('modeMove').classList.remove('on'); if (sel) tcon.setMode('rotate'); };
-$('modeMove').onclick = () => { moveMode = true; $('modeMove').classList.add('on'); $('modeRot').classList.remove('on'); const h = rootBone(); if (h) select(h); };
+// weapons and accessories can be moved as well as turned; the body's own joints only turn (the hips move to crouch)
+const movable = (b) => !!b && (b === rootBone() || isWeapon(b) || ['Cloth & gear', 'Cloak', 'Hair'].includes(groupOf(b.name)));
+$('modeRot').onclick = () => { moveMode = false; $('modeRot').classList.add('on'); $('modeMove').classList.remove('on'); select(sel); };
+$('modeMove').onclick = () => { moveMode = true; $('modeMove').classList.add('on'); $('modeRot').classList.remove('on'); select(movable(sel) ? sel : rootBone()); };
 $('showMinor').onchange = () => { buildMarkers(); renderBoneList(); };
-$('resetBone').onclick = () => { if (!sel) return; pushUndo(); sel.quaternion.copy(rest.get(sel)); if (sel === rootBone() && restHips) sel.position.copy(restHips); if (isWeapon(sel)) sel.position.copy(restP.get(sel)); syncSliders(); afterEdit(); };
+$('resetBone').onclick = () => { if (!sel) return; pushUndo(); sel.quaternion.copy(rest.get(sel)); if (sel === rootBone() && restHips) sel.position.copy(restHips); if (movable(sel) && sel !== rootBone()) sel.position.copy(restP.get(sel)); syncSliders(); afterEdit(); };
 
 // mirror: the rig's joints all rest square to the world, so a mirrored turn flips y and z
 const other = (n) => n.replace(/^L /, '\u0000').replace(/^R /, 'L ').replace(/^\u0000/, 'R ');
@@ -585,7 +589,7 @@ function stopReach() {
   const r = tools.reach; tools.reach = null; ikDot.visible = false; tcon.setSpace('local');
   for (const k of ['reachHand', 'reachFoot']) { $(k).classList.remove('on'); }
   $('reachHand').textContent = 'Drag the hand'; $('reachFoot').textContent = 'Drag the foot';
-  if (r) { const t = isWeapon(sel) && wristMode ? handOf(sel) || sel : sel; if (t) { tcon.attach(t); tcon.setMode('rotate'); } else tcon.detach(); }
+  if (r) select(sel);
 }
 function reachTo() { const r = tools.reach; if (r) ik(r.sd, ikTarget.position.clone(), r.leg); }
 $('reachHand').onclick = () => { if (tools.reach) { stopReach(); afterEdit(); return; } const sd = sideOf(sel); if (sd) { pushUndo(); startReach(sd, false); } };
@@ -621,6 +625,7 @@ function seatWeapon(wb) {
   dw.applyQuaternion(hand.getWorldQuaternion(new THREE.Quaternion()).invert()); wb.position.add(dw);
 }
 $('wSeat').onclick = () => { if (!isWeapon(sel)) return; pushUndo(); seatWeapon(sel); afterEdit(); toast('Fist closed round the grip'); };
+$('wMove').onclick = () => { if (!isWeapon(sel)) return; const w = sel; $('modeMove').click(); select(w); };
 $('wReset').onclick = () => { if (!isWeapon(sel)) return; pushUndo(); sel.position.copy(restP.get(sel)); sel.quaternion.copy(rest.get(sel)); afterEdit(); };
 // the other hand on the weapon
 function keepTwo() {
