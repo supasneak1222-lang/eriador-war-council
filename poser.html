@@ -33,6 +33,8 @@ label{display:flex;align-items:center;gap:6px;color:var(--dim)}
 .brand{font-family:var(--display);font-weight:700;color:var(--gold);letter-spacing:.05em;font-size:15px;line-height:1.15;white-space:nowrap}
 .brand small{display:block;font-family:var(--body);font-weight:400;letter-spacing:0;color:var(--dim);font-size:13.5px}
 .grow{flex:1}
+.views{display:flex;gap:4px}.views button{padding:6px 9px}
+#ikDot{display:none}
 .panel{position:fixed;z-index:2;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 40px #0009;overflow:auto}
 #left{left:12px;top:64px;bottom:12px;width:250px;padding:10px}
 #right{right:12px;top:64px;width:290px;max-height:calc(100% - 76px);padding:12px}
@@ -74,6 +76,7 @@ dialog .row{justify-content:flex-end}
 <div class="top">
   <div class="brand">Figure Poser<small>Pose a figure, put it on a base, use it in the War Council</small></div>
   <div class="grow"></div>
+  <span class="views"><button data-view="front" title="Look from the front">Front</button><button data-view="side" title="Look from the side">Side</button><button data-view="back" title="Look from behind">Back</button><button data-view="sel" title="Close in on the selected joint (F)">Close in</button></span>
   <button id="openBtn" class="gold">Open model…</button>
   <input type="file" id="file" accept=".glb,.gltf" hidden multiple>
   <a href="index.html"><button>Back to the War Council</button></a>
@@ -98,6 +101,25 @@ dialog .row{justify-content:flex-end}
   </div>
   <div class="row"><button id="modeRot" class="on">Turn</button><button id="modeMove" title="Only the hips can be moved: lower them to crouch">Move hips</button></div>
   <div class="row"><button id="resetBone">Reset joint</button><button id="mirror" title="Copy this side's pose onto the other side">Mirror to other side</button></div>
+  <div id="handBox" hidden>
+    <h3>Hand</h3>
+    <div class="sl" title="Open hand to closed fist"><span>✊</span><input type="range" min="0" max="100" step="1" id="gripAmt"><output id="gripO"></output></div>
+    <div class="row"><button id="reachHand" title="Drag the hand where you want it; the elbow follows">Drag the hand</button><button id="elbowFlip" title="Swing the elbow round the other way">Flip elbow</button></div>
+  </div>
+  <div id="footBox" hidden>
+    <h3>Foot</h3>
+    <div class="row"><button id="reachFoot" title="Drag the foot where you want it; the knee follows">Drag the foot</button><button id="kneeFlip">Flip knee</button></div>
+  </div>
+  <div id="wpnBox" hidden>
+    <h3>Weapon</h3>
+    <div class="row"><button id="wWrist" class="on" title="The hand turns and the weapon stays in the fist">Turn by the wrist</button><button id="wGrip" title="The weapon turns inside the hand">Turn in the hand</button></div>
+    <div class="sl" title="Slide the weapon up or down through the fist"><span>↕</span><input type="range" min="-100" max="100" step="1" value="0" id="wSlide"><output id="wSlideO"></output></div>
+    <div class="sl" title="Roll the weapon about its own length"><span>↻</span><input type="range" min="-180" max="180" step="1" value="0" id="wRoll"><output id="wRollO"></output></div>
+    <div class="row"><button id="wSeat" title="Close the fist and put the grip through the middle of it">Seat in the fist</button><button id="wReset">Reset weapon</button></div>
+    <div class="row"><button id="wTwo" title="The other hand grips the weapon too, and stays on it as you pose">Other hand on it</button></div>
+    <div class="sl" title="Where the other hand holds it, from the end to the tip"><span>✋</span><input type="range" min="0" max="100" step="1" value="30" id="wTwoAt"><output id="wTwoAtO"></output></div>
+    <label title="For bows: a string from both tips to the other hand"><input type="checkbox" id="wString"> Bowstring drawn to the other hand</label>
+  </div>
   <h3>Whole pose</h3>
   <div class="row"><button data-preset="rest">As extracted</button><button data-preset="sides">Arms at sides</button><button data-preset="ready">Ready stance</button></div>
   <div class="row"><button id="mirrorAll">Mirror left → right</button><button id="undo" title="Ctrl+Z">Undo</button></div>
@@ -111,6 +133,7 @@ dialog .row{justify-content:flex-end}
   <label><input type="checkbox" id="feet" checked> Keep feet on the base</label>
   <h3>Save</h3>
   <div class="row"><button class="gold" id="addWC">Add to the War Council…</button></div>
+  <div class="row"><button id="sendClaude" title="Save one file with this pose, two pictures and your notes, to attach in your chat with Claude">Send to Claude…</button></div>
   <div class="row"><button id="savePose">Save pose</button><button id="loadPose">Load pose</button><button id="dlGlb">Download .glb</button></div>
   <input type="file" id="poseFile" accept=".json" hidden>
   <h3>Your War Council figures</h3>
@@ -124,6 +147,12 @@ dialog .row{justify-content:flex-end}
   <label>Side <select id="fSide"><option>Good</option><option>Evil</option></select></label>
   <div class="hint">The figure is saved in this browser only. It is not uploaded or shared with other players.</div>
   <div class="row"><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="gold">Save figure</button></div>
+</form></dialog>
+<dialog id="dlgC"><form method="dialog">
+  <h2>Send to Claude</h2>
+  <div class="hint">This saves one file: the pose, a picture from the front and the side, and your notes. Attach it in your chat with Claude, who can tidy the pose up and send back a finished figure.</div>
+  <label style="display:block">What should Claude fix or improve?<textarea id="cNotes" rows="5" style="width:100%;margin-top:6px;font-family:var(--body);font-size:15px;background:#f3e7c9;color:#2a1c10;border:1px solid #8c7a55;border-radius:5px;padding:6px" placeholder="e.g. tighten the grip on the spear, make him lean into the thrust, fix the left knee"></textarea></label>
+  <div class="row"><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="gold">Save the file</button></div>
 </form></dialog>
 <div id="toast" hidden></div>
 
@@ -165,7 +194,7 @@ table.rotation.x = -Math.PI / 2; table.receiveShadow = true; scene.add(table);
 const tcon = new TransformControls(camera, canvas); tcon.setMode('rotate'); tcon.setSpace('local'); tcon.setSize(0.7);
 scene.add(tcon.getHelper());
 tcon.addEventListener('dragging-changed', (e) => { orbit.enabled = !e.value; if (e.value) pushUndo(); else afterEdit(); });
-tcon.addEventListener('objectChange', () => { syncSliders(); });
+tcon.addEventListener('objectChange', () => { if (tools.reach) reachTo(); keepTwo(); syncSliders(); });
 function resize() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
 addEventListener('resize', resize); resize();
 
@@ -200,15 +229,17 @@ function baseTop() { return +$('baseSize').value ? BASE_H : 0; }
 
 // ------------------------------------------------------------ the figure
 const loader = new GLTFLoader();
+let restP = new Map();
 let fig = null, bones = [], byName = new Map(), skinned = [], rest = new Map(), restHips = null, sel = null, current = null;
 const markers = new THREE.Group(); scene.add(markers);
 const mGeo = new THREE.SphereGeometry(1, 12, 8);
 const mMat = new THREE.MeshBasicMaterial({ color: '#e9c877', depthTest: false, transparent: true, opacity: 0.85 });
 const mMatMinor = new THREE.MeshBasicMaterial({ color: '#8fb8ff', depthTest: false, transparent: true, opacity: 0.7 });
 const mMatSel = new THREE.MeshBasicMaterial({ color: '#ff6a3d', depthTest: false });
-const MAJOR = /^(Hips|Spine|Chest|Neck|Head|Jaw|(L|R) (Shoulder|Upper arm|Forearm|Hand|Thigh|Shin|Foot|Toe))( \d+)?$/;
+const MAJOR = /^(Hips|Spine|Chest|Neck|Head|Jaw|(L|R) (Shoulder|Upper arm|Forearm|Hand|Thigh|Shin|Foot|Toe|Weapon))( \d+)?$/;
 const isMajor = (n) => MAJOR.test(n);
 function groupOf(n) {
+  if (/Weapon/.test(n)) return 'Weapons';
   if (isMajor(n)) return /^(L|R) (Shoulder|Upper arm|Forearm|Hand)/.test(n) ? 'Arms' : /^(L|R) (Thigh|Shin|Foot|Toe)/.test(n) ? 'Legs' : 'Body';
   if (/Finger/.test(n)) return 'Fingers'; if (/^Face/.test(n)) return 'Face'; if (/^Hair/.test(n)) return 'Hair';
   if (/Cloak/.test(n)) return 'Cloak'; return 'Cloth & gear';
@@ -216,9 +247,9 @@ function groupOf(n) {
 async function openGlb(buf, name, save = true) {
   const g = await new Promise((res, rej) => loader.parse(buf.slice(0), '', res, rej));
   if (fig) { scene.remove(fig); tcon.detach(); }
-  fig = g.scene; bones = []; skinned = []; byName = new Map(); rest = new Map();
+  fig = g.scene; bones = []; skinned = []; byName = new Map(); rest = new Map(); restP = new Map(); wInfoCache.clear(); resetTools();
   fig.traverse(o => {
-    if (o.isBone) { o.name = o.name.replace(/_/g, ' '); bones.push(o); byName.set(o.name, o); rest.set(o, o.quaternion.clone()); }
+    if (o.isBone) { o.name = o.name.replace(/_/g, ' '); bones.push(o); byName.set(o.name, o); rest.set(o, o.quaternion.clone()); restP.set(o, o.position.clone()); }
     if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; if (o.material.map) o.material.map.anisotropy = 8; }
     if (o.isSkinnedMesh) skinned.push(o);
   });
@@ -246,24 +277,33 @@ const tmpV = new THREE.Vector3();
 function updateMarkers() { for (const m of markers.children) { m.userData.bone.getWorldPosition(tmpV); m.position.copy(tmpV); m.material = m.userData.bone === sel ? mMatSel : isMajor(m.userData.bone.name) ? mMat : mMatMinor; } }
 function renderBoneList() {
   const showMinor = $('showMinor').checked, groups = {};
-  for (const b of bones) { const g = groupOf(b.name); if (!showMinor && !['Body', 'Arms', 'Legs'].includes(g)) continue; (groups[g] ||= []).push(b); }
-  const order = ['Body', 'Arms', 'Legs', 'Fingers', 'Face', 'Hair', 'Cloak', 'Cloth & gear'];
-  $('bones').innerHTML = order.filter(g => groups[g]).map(g => `<details class="grp" ${['Body', 'Arms', 'Legs'].includes(g) ? 'open' : ''}><summary>${g}</summary>${groups[g].map(b => `<button data-b="${esc(b.uuid)}" class="${b === sel ? 'on' : ''}">${esc(b.name)}</button>`).join('')}</details>`).join('');
+  for (const b of bones) { const g = groupOf(b.name); if (!showMinor && !['Body', 'Arms', 'Legs', 'Weapons'].includes(g)) continue; (groups[g] ||= []).push(b); }
+  const order = ['Weapons', 'Body', 'Arms', 'Legs', 'Fingers', 'Face', 'Hair', 'Cloak', 'Cloth & gear'];
+  $('bones').innerHTML = order.filter(g => groups[g]).map(g => `<details class="grp" ${['Body', 'Arms', 'Legs', 'Weapons'].includes(g) ? 'open' : ''}><summary>${g}</summary>${groups[g].map(b => `<button data-b="${esc(b.uuid)}" class="${b === sel ? 'on' : ''}">${esc(b.name)}</button>`).join('')}</details>`).join('');
   $('bones').querySelectorAll('[data-b]').forEach(el => el.onclick = () => select(bones.find(b => b.uuid === el.dataset.b)));
 }
 function select(b) {
+  if (tools.reach) stopReach();
   sel = b || null;
-  if (sel) { tcon.attach(sel); tcon.setMode(moveMode && sel === rootBone() ? 'translate' : 'rotate'); } else tcon.detach();
-  $('selName').textContent = sel ? sel.name : 'Click the figure or a joint';
+  const target = isWeapon(sel) && wristMode ? handOf(sel) || sel : sel;
+  if (target) { tcon.attach(target); tcon.setMode(moveMode && sel === rootBone() ? 'translate' : 'rotate'); } else tcon.detach();
+  const sd = sideOf(sel);
+  $('handBox').hidden = !(sel && /^(L|R) (Hand|Finger)/.test(sel.name));
+  $('footBox').hidden = !(sel && /^(L|R) (Foot|Toe|Shin)/.test(sel.name));
+  $('wpnBox').hidden = !isWeapon(sel);
+  if (sd) { $('gripAmt').value = tools.grip[sd] || 0; $('gripO').textContent = (tools.grip[sd] || 0) + '%'; }
+  if (isWeapon(sel)) { $('wTwo').textContent = tools.two && tools.two.w === sel.name ? 'Let go with the other hand' : 'Other hand on it'; $('wString').checked = !!(tools.string && tools.string.w === sel.name); $('wTwoAt').value = Math.round((tools.two && tools.two.w === sel.name ? tools.two.f : 0.3) * 100); $('wTwoAtO').textContent = $('wTwoAt').value + '%'; }
+  $('selName').textContent = sel ? sel.name + (isWeapon(sel) && wristMode ? ' (turning the ' + sideOf(sel) + ' wrist)' : '') : 'Click the figure or a joint';
   $('rotBox').style.opacity = sel ? 1 : 0.4; for (const k of ['rx', 'ry', 'rz', 'resetBone', 'mirror']) $(k).disabled = !sel;
   $('mirror').disabled = !sel || !/^(L|R) /.test(sel.name);
   $('bones').querySelectorAll('[data-b]').forEach(el => el.classList.toggle('on', sel && el.dataset.b === sel.uuid));
   syncSliders();
 }
 const eul = new THREE.Euler();
+function active() { return isWeapon(sel) && wristMode ? handOf(sel) || sel : sel; }   // what the rings and sliders turn
 function syncSliders() {
   if (!sel) { for (const k of ['rx', 'ry', 'rz']) { $(k).value = 0; $(k + 'o').textContent = ''; } return; }
-  eul.setFromQuaternion(sel.quaternion, 'XYZ');
+  eul.setFromQuaternion(active().quaternion, 'XYZ');
   for (const [k, v] of [['rx', eul.x], ['ry', eul.y], ['rz', eul.z]]) { const d = Math.round(THREE.MathUtils.radToDeg(v)); $(k).value = d; $(k + 'o').textContent = d + '°'; }
 }
 for (const k of ['rx', 'ry', 'rz']) {
@@ -271,8 +311,8 @@ for (const k of ['rx', 'ry', 'rz']) {
   $(k).addEventListener('keydown', () => pushUndo());
   $(k).addEventListener('input', () => {
     if (!sel) return; const r = THREE.MathUtils.degToRad;
-    sel.quaternion.setFromEuler(new THREE.Euler(r(+$('rx').value), r(+$('ry').value), r(+$('rz').value), 'XYZ'));
-    $(k + 'o').textContent = $(k).value + '°';
+    active().quaternion.setFromEuler(new THREE.Euler(r(+$('rx').value), r(+$('ry').value), r(+$('rz').value), 'XYZ'));
+    keepTwo(); $(k + 'o').textContent = $(k).value + '°';
   });
   $(k).addEventListener('change', afterEdit);
 }
@@ -280,7 +320,7 @@ let moveMode = false;
 $('modeRot').onclick = () => { moveMode = false; $('modeRot').classList.add('on'); $('modeMove').classList.remove('on'); if (sel) tcon.setMode('rotate'); };
 $('modeMove').onclick = () => { moveMode = true; $('modeMove').classList.add('on'); $('modeRot').classList.remove('on'); const h = rootBone(); if (h) select(h); };
 $('showMinor').onchange = () => { buildMarkers(); renderBoneList(); };
-$('resetBone').onclick = () => { if (!sel) return; pushUndo(); sel.quaternion.copy(rest.get(sel)); if (sel === rootBone() && restHips) sel.position.copy(restHips); syncSliders(); afterEdit(); };
+$('resetBone').onclick = () => { if (!sel) return; pushUndo(); sel.quaternion.copy(rest.get(sel)); if (sel === rootBone() && restHips) sel.position.copy(restHips); if (isWeapon(sel)) sel.position.copy(restP.get(sel)); syncSliders(); afterEdit(); };
 
 // mirror: the rig's joints all rest square to the world, so a mirrored turn flips y and z
 const other = (n) => n.replace(/^L /, '\u0000').replace(/^R /, 'L ').replace(/^\u0000/, 'R ');
@@ -326,15 +366,19 @@ $('feet').onchange = afterEdit;
 
 // ------------------------------------------------------------ undo + saving the pose with the model
 const undoStack = [];
-function snap() { if (!fig) return null; return { q: bones.map(b => b.quaternion.toArray()), hips: rootBone() ? rootBone().position.toArray() : null, facing: fig.rotation.y }; }
-function restore(s) { bones.forEach((b, i) => b.quaternion.fromArray(s.q[i])); if (s.hips && rootBone()) rootBone().position.fromArray(s.hips); fig.rotation.y = s.facing; $('facing').value = Math.round(THREE.MathUtils.radToDeg(s.facing)); $('facingO').textContent = $('facing').value + '°'; }
+function snap() { if (!fig) return null; return { q: bones.map(b => b.quaternion.toArray()), p: bones.map(b => b.position.toArray()), tools: toolState(), hips: rootBone() ? rootBone().position.toArray() : null, facing: fig.rotation.y }; }
+function restore(s) { bones.forEach((b, i) => { b.quaternion.fromArray(s.q[i]); if (s.p) b.position.fromArray(s.p[i]); }); if (s.tools) setToolState(s.tools); if (s.hips && rootBone()) rootBone().position.fromArray(s.hips); fig.rotation.y = s.facing; $('facing').value = Math.round(THREE.MathUtils.radToDeg(s.facing)); $('facingO').textContent = $('facing').value + '°'; }
 function pushUndo() { const s = snap(); if (s) { undoStack.push(s); if (undoStack.length > 80) undoStack.shift(); } }
 $('undo').onclick = () => { const s = undoStack.pop(); if (!s) return toast('Nothing to undo'); restore(s); syncSliders(); afterEdit(true); };
 addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); $('undo').click(); } if (e.key === 'Escape') select(null); });
-function poseJson() { const p = { bones: {}, hips: rootBone() ? rootBone().position.toArray() : null, facing: fig.rotation.y, base: $('baseSize').value, look: $('baseLook').value };
-  for (const b of bones) p.bones[b.name] = b.quaternion.toArray().map(x => +x.toFixed(5)); return p; }
+function poseJson() { const p = { model: current, bones: {}, pos: {}, tools: toolState(), hips: rootBone() ? rootBone().position.toArray() : null, facing: fig.rotation.y, base: $('baseSize').value, look: $('baseLook').value };
+  for (const b of bones) { p.bones[b.name] = b.quaternion.toArray().map(x => +x.toFixed(5)); if (b !== rootBone() && restP.get(b) && b.position.distanceTo(restP.get(b)) > 1e-5) p.pos[b.name] = b.position.toArray().map(x => +x.toFixed(5)); }
+  return p; }
 function applyPose(p) {
-  for (const b of bones) { const q = p.bones && p.bones[b.name]; b.quaternion.copy(q ? new THREE.Quaternion().fromArray(q) : rest.get(b)); }
+  if (p && p.pose) p = p.pose;   // a file saved for Claude carries the pose inside it
+  for (const b of bones) { const q = p.bones && p.bones[b.name]; b.quaternion.copy(q ? new THREE.Quaternion().fromArray(q) : rest.get(b));
+    if (b !== rootBone()) { const ps = p.pos && p.pos[b.name]; b.position.copy(ps ? new THREE.Vector3().fromArray(ps) : restP.get(b)); } }
+  setToolState(p.tools || null);
   if (p.hips && rootBone()) rootBone().position.fromArray(p.hips);
   if (fig) fig.rotation.y = p.facing || 0;
   if (p.base != null) $('baseSize').value = p.base; if (p.look) $('baseLook').value = p.look; buildBase();
@@ -342,7 +386,7 @@ function applyPose(p) {
   syncSliders(); fitFeet();
 }
 let saveT = 0;
-function afterEdit() { fitFeet(); syncSliders(); clearTimeout(saveT); saveT = setTimeout(async () => { if (!current) return; const r = await dbGet('rigs', current).catch(() => null); if (r) { r.pose = poseJson(); r.at = Date.now(); dbPut('rigs', r).catch(() => {}); } }, 400); }
+function afterEdit() { keepTwo(); fitFeet(); syncSliders(); clearTimeout(saveT); saveT = setTimeout(async () => { if (!current) return; const r = await dbGet('rigs', current).catch(() => null); if (r) { r.pose = poseJson(); r.at = Date.now(); dbPut('rigs', r).catch(() => {}); } }, 400); }
 
 // stand the figure on its base: find the lowest point of the posed mesh
 function fitFeet() {
@@ -408,6 +452,7 @@ function bakedGroup() {
     const mat = m.material.clone(); out.add(new THREE.Mesh(g, mat));
   }
   for (const b of baseGroup.children) { const c = b.clone(); c.material = b.material.map ? b.material.map(x => x.clone()) : b.material; out.add(c); }
+  updateString(); for (const r of stringGroup.children) if (r.visible) { const c = r.clone(); c.material = r.material.clone(); out.add(c); }
   return out;
 }
 async function exportGlb(group) { return new Promise((res, rej) => new GLTFExporter().parse(group, res, rej, { binary: true, maxTextureSize: 1024 })); }
@@ -447,9 +492,197 @@ $('savePose').onclick = () => { if (!fig) return; download(new Blob([JSON.string
 $('loadPose').onclick = () => $('poseFile').click();
 $('poseFile').onchange = async () => { const f = $('poseFile').files[0]; $('poseFile').value = ''; if (!f || !fig) return; try { pushUndo(); applyPose(JSON.parse(await f.text())); afterEdit(); toast('Pose loaded'); } catch (e) { toast('That isn’t a pose file'); } };
 
+// ------------------------------------------------------------ tools: hands, feet and weapons
+const tools = { two: null, string: null, reach: null, grip: { L: 0, R: 0 } };
+let wristMode = true;
+function resetTools() { tools.two = null; tools.string = null; tools.reach = null; tools.grip = { L: 0, R: 0 }; }
+function toolState() { return { two: tools.two && { ...tools.two }, string: tools.string && { ...tools.string }, grip: { ...tools.grip } }; }
+function setToolState(t) { tools.two = t && t.two ? { ...t.two } : null; tools.string = t && t.string ? { ...t.string } : null; tools.grip = t && t.grip ? { ...t.grip } : { L: 0, R: 0 }; }
+const isWeapon = (b) => !!b && /Weapon/.test(b.name);
+const sideOf = (b) => (b && /^(L|R) /.test(b.name) ? b.name[0] : null);
+const handOf = (b) => byName.get(sideOf(b) + ' Hand');
+const otherSide = (sd) => (sd === 'L' ? 'R' : 'L');
+function wpos(b) { fig.updateMatrixWorld(true); return b.getWorldPosition(new THREE.Vector3()); }
+// turn joint b (in the world) so that the vector cur points along want
+function aimVec(b, cur, want) {
+  const q = new THREE.Quaternion().setFromUnitVectors(cur.clone().normalize(), want.clone().normalize());
+  const wq = b.getWorldQuaternion(new THREE.Quaternion()), pq = b.parent.getWorldQuaternion(new THREE.Quaternion());
+  b.quaternion.copy(pq.invert().multiply(q.multiply(wq)));
+}
+function turnWorld(b, axis, ang) { fig.updateMatrixWorld(true); const r = new THREE.Quaternion().setFromAxisAngle(axis.clone().normalize(), ang);
+  const wq = b.getWorldQuaternion(new THREE.Quaternion()), pq = b.parent.getWorldQuaternion(new THREE.Quaternion()); b.quaternion.copy(pq.invert().multiply(r.multiply(wq))); }
+function holdWorldQ(b, wq) { fig.updateMatrixWorld(true); const pq = b.parent.getWorldQuaternion(new THREE.Quaternion()); b.quaternion.copy(pq.invert().multiply(wq)); }
+// a weapon's two ends in its own frame (joints rest square to the world at their pivots)
+const wInfoCache = new Map();
+function wInfo(wb) {
+  if (wInfoCache.has(wb)) return wInfoCache.get(wb);
+  const pts = [];
+  for (const m of skinned) { const bi = m.skeleton.bones.indexOf(wb); if (bi < 0) continue;
+    const J = m.geometry.attributes.skinIndex, Wt = m.geometry.attributes.skinWeight, P = m.geometry.attributes.position, inv = m.skeleton.boneInverses[bi];
+    for (let i = 0; i < P.count; i++) for (let k = 0; k < 4; k++) if (J.getComponent(i, k) === bi && Wt.getComponent(i, k) > 0.5) { pts.push(new THREE.Vector3().fromBufferAttribute(P, i).applyMatrix4(inv)); break; } }
+  if (!pts.length) return null;
+  let tip = pts[0]; for (const p of pts) if (p.length() > tip.length()) tip = p;
+  let butt = tip; for (const p of pts) if (p.distanceTo(tip) > butt.distanceTo(tip)) butt = p;
+  const len = butt.distanceTo(tip), ax = tip.clone().sub(butt).normalize();
+  // a bow holds on its curve, away from the line between its tips
+  let near = pts[0]; for (const p of pts) if (p.length() < near.length()) near = p;
+  const off = near.clone().sub(butt); off.sub(ax.clone().multiplyScalar(off.dot(ax)));
+  const info = { tip, butt, len, curved: off.length() > len * 0.08 };
+  wInfoCache.set(wb, info); return info;
+}
+function wEnds(wb) { const i = wInfo(wb); fig.updateMatrixWorld(true); return [wb.localToWorld(i.butt.clone()), wb.localToWorld(i.tip.clone())]; }
+// the middle of a closed fist, in the world
+function fistCentre(sd) {
+  const hand = byName.get(sd + ' Hand'); fig.updateMatrixWorld(true);
+  const firsts = hand.children.filter(c => c.isBone && /Finger/.test(c.name)); if (!firsts.length) return wpos(hand);
+  const thumb = firsts.reduce((a, b) => (restP.get(b).z > restP.get(a).z ? b : a), firsts[0]);
+  const pts = []; hand.traverse(b => { if (b.isBone && /Finger/.test(b.name) && b !== thumb && b.parent !== thumb) pts.push(b.getWorldPosition(new THREE.Vector3())); });
+  const C = pts.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / pts.length);
+  return C.lerp(wpos(hand), 0.25);
+}
+// open (0) to closed (1): fingers curl toward the palm (palms face down at rest), the thumb folds across
+function setGrip(sd, amt) {
+  const hand = byName.get(sd + ' Hand'); if (!hand) return; tools.grip[sd] = Math.round(amt * 100);
+  const sg = sd === 'L' ? -1 : 1, kids = (b) => b.children.filter(c => c.isBone && /Finger/.test(c.name)), firsts = kids(hand); if (!firsts.length) return;
+  const thumb = firsts.reduce((a, b) => (restP.get(b).z > restP.get(a).z ? b : a), firsts[0]);
+  for (const f of firsts) { const chain = [f]; let c = f; while (kids(c).length) { c = kids(c)[0]; chain.push(c); }
+    chain.forEach((b, i) => { const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), sg * (f === thumb ? 0.45 : i ? 1.45 : 1.25) * amt); b.quaternion.copy(rest.get(b)).multiply(q); }); }
+}
+// two-joint reach: the elbow (or knee) keeps bending the way it bends now
+function ik(sd, target, leg, keepEnd = true) {
+  const [u, l, e] = leg ? ['Thigh', 'Shin', 'Foot'] : ['Upper arm', 'Forearm', 'Hand'];
+  const U = byName.get(sd + ' ' + u), L = byName.get(sd + ' ' + l), E = byName.get(sd + ' ' + e); if (!U || !L || !E) return;
+  fig.updateMatrixWorld(true); const endQ = E.getWorldQuaternion(new THREE.Quaternion());
+  const S = wpos(U), Lp = wpos(L), Ep = wpos(E), l1 = Lp.distanceTo(S), l2 = Ep.distanceTo(Lp);
+  const dir = target.clone().sub(S); let d = Math.max(dir.length(), 1e-4); dir.normalize();
+  let pole = Lp.clone().sub(S); pole.sub(dir.clone().multiplyScalar(pole.dot(dir)));
+  if (pole.length() < 1e-3) pole = (leg ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(sd === 'L' ? 0.3 : -0.3, -1, -0.5)).applyQuaternion(fig.quaternion);
+  pole.normalize();
+  d = Math.min(d, (l1 + l2) * 0.999); const a = (l1 * l1 - l2 * l2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+  const El = S.clone().addScaledVector(dir, a).addScaledVector(pole, h);
+  aimVec(U, Lp.clone().sub(S), El.clone().sub(S));
+  const Lp2 = wpos(L), Ep2 = wpos(E); aimVec(L, Ep2.clone().sub(Lp2), target.clone().sub(Lp2));
+  if (keepEnd) holdWorldQ(E, endQ);   // the hand (and anything in it) keeps its heading
+}
+function flipBend(sd, leg) {
+  const [u, , e] = leg ? ['Thigh', 'Shin', 'Foot'] : ['Upper arm', 'Forearm', 'Hand'];
+  const U = byName.get(sd + ' ' + u), E = byName.get(sd + ' ' + e); if (!U || !E) return;
+  fig.updateMatrixWorld(true); const endQ = E.getWorldQuaternion(new THREE.Quaternion());
+  turnWorld(U, wpos(E).sub(wpos(U)), Math.PI); holdWorldQ(E, endQ);
+}
+// dragging a hand or a foot
+const ikTarget = new THREE.Object3D(); scene.add(ikTarget);
+const ikDot = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), new THREE.MeshBasicMaterial({ color: '#7fd1ff', depthTest: false, transparent: true, opacity: 0.85 })); ikDot.renderOrder = 1000; ikTarget.add(ikDot); ikDot.visible = false;
+function startReach(sd, leg) {
+  tools.reach = { sd, leg }; ikTarget.position.copy(wpos(byName.get(sd + (leg ? ' Foot' : ' Hand'))));
+  ikDot.visible = true; tcon.attach(ikTarget); tcon.setMode('translate'); tcon.setSpace('world');
+  $(leg ? 'reachFoot' : 'reachHand').classList.add('on'); $(leg ? 'reachFoot' : 'reachHand').textContent = 'Done dragging';
+}
+function stopReach() {
+  const r = tools.reach; tools.reach = null; ikDot.visible = false; tcon.setSpace('local');
+  for (const k of ['reachHand', 'reachFoot']) { $(k).classList.remove('on'); }
+  $('reachHand').textContent = 'Drag the hand'; $('reachFoot').textContent = 'Drag the foot';
+  if (r) { const t = isWeapon(sel) && wristMode ? handOf(sel) || sel : sel; if (t) { tcon.attach(t); tcon.setMode('rotate'); } else tcon.detach(); }
+}
+function reachTo() { const r = tools.reach; if (r) ik(r.sd, ikTarget.position.clone(), r.leg); }
+$('reachHand').onclick = () => { if (tools.reach) { stopReach(); afterEdit(); return; } const sd = sideOf(sel); if (sd) { pushUndo(); startReach(sd, false); } };
+$('reachFoot').onclick = () => { if (tools.reach) { stopReach(); afterEdit(); return; } const sd = sideOf(sel); if (sd) { pushUndo(); startReach(sd, true); } };
+$('elbowFlip').onclick = () => { const sd = sideOf(sel); if (!sd) return; pushUndo(); flipBend(sd, false); afterEdit(); };
+$('kneeFlip').onclick = () => { const sd = sideOf(sel); if (!sd) return; pushUndo(); flipBend(sd, true); afterEdit(); };
+$('gripAmt').addEventListener('pointerdown', () => pushUndo());
+$('gripAmt').oninput = () => { const sd = sideOf(sel); if (!sd) return; setGrip(sd, +$('gripAmt').value / 100); $('gripO').textContent = $('gripAmt').value + '%'; };
+$('gripAmt').onchange = () => afterEdit();
+// weapons
+$('wWrist').onclick = () => { wristMode = true; $('wWrist').classList.add('on'); $('wGrip').classList.remove('on'); select(sel); };
+$('wGrip').onclick = () => { wristMode = false; $('wGrip').classList.add('on'); $('wWrist').classList.remove('on'); select(sel); };
+let slideBase = null, rollBase = null;
+$('wSlide').addEventListener('pointerdown', () => { if (!isWeapon(sel)) return; pushUndo(); slideBase = sel.position.clone(); });
+$('wSlide').oninput = () => {
+  if (!isWeapon(sel)) return; if (!slideBase) slideBase = sel.position.clone(); const i = wInfo(sel); if (!i) return;
+  const ax = i.tip.clone().sub(i.butt).normalize().applyQuaternion(sel.quaternion);   // the weapon's line, in the hand's frame
+  sel.position.copy(slideBase).addScaledVector(ax, (+$('wSlide').value / 100) * i.len * 0.5); keepTwo(); $('wSlideO').textContent = $('wSlide').value;
+};
+$('wSlide').onchange = () => { slideBase = null; $('wSlide').value = 0; $('wSlideO').textContent = ''; afterEdit(); };
+$('wRoll').addEventListener('pointerdown', () => { if (!isWeapon(sel)) return; pushUndo(); const t = wristMode ? handOf(sel) : sel; rollBase = [t, t.quaternion.clone()]; });
+$('wRoll').oninput = () => {
+  if (!isWeapon(sel)) return; const t = wristMode ? handOf(sel) || sel : sel; if (!rollBase || rollBase[0] !== t) rollBase = [t, t.quaternion.clone()];
+  t.quaternion.copy(rollBase[1]); const [a, b] = wEnds(sel); turnWorld(t, b.sub(a), THREE.MathUtils.degToRad(+$('wRoll').value)); keepTwo(); $('wRollO').textContent = $('wRoll').value + '°';
+};
+$('wRoll').onchange = () => { rollBase = null; $('wRoll').value = 0; $('wRollO').textContent = ''; afterEdit(); };
+function seatWeapon(wb) {
+  const sd = sideOf(wb), hand = handOf(wb), i = wInfo(wb); if (!hand || !i) return;
+  setGrip(sd, 1);
+  if (i.curved) { wb.position.copy(restP.get(wb)); return; }   // a bow keeps the grip it was made with
+  const C = fistCentre(sd), [a, b] = wEnds(wb), dir = b.clone().sub(a).normalize();
+  const Q = a.clone().addScaledVector(dir, C.clone().sub(a).dot(dir)), dw = C.sub(Q);
+  dw.applyQuaternion(hand.getWorldQuaternion(new THREE.Quaternion()).invert()); wb.position.add(dw);
+}
+$('wSeat').onclick = () => { if (!isWeapon(sel)) return; pushUndo(); seatWeapon(sel); afterEdit(); toast('Fist closed round the grip'); };
+$('wReset').onclick = () => { if (!isWeapon(sel)) return; pushUndo(); sel.position.copy(restP.get(sel)); sel.quaternion.copy(rest.get(sel)); afterEdit(); };
+// the other hand on the weapon
+function keepTwo() {
+  const t = tools.two; if (!t || !fig) return; const wb = byName.get(t.w), sd = t.sd; if (!wb || !byName.get(sd + ' Hand')) return;
+  const [a, b] = wEnds(wb), want = a.clone().lerp(b, t.f);
+  let aim = want.clone();
+  for (let k = 0; k < 3; k++) { ik(sd, aim, false, false); const C = fistCentre(sd); aim.add(want.clone().sub(C)); }
+  setGrip(sd, 1);
+}
+$('wTwo').onclick = () => {
+  if (!isWeapon(sel)) return; pushUndo();
+  if (tools.two && tools.two.w === sel.name) { tools.two = null; select(sel); afterEdit(); return; }
+  // start the second hand a hand's breadth or two in front of the first, toward the business end
+  const i = wInfo(sel), [e0, e1] = wEnds(sel), d = e1.clone().sub(e0), fg = fistCentre(sideOf(sel)).sub(e0).dot(d) / d.lengthSq();
+  let f = fg + 0.45 / i.len; if (f > 0.98) f = fg - 0.45 / i.len; f = Math.max(0.02, Math.min(0.98, f));
+  tools.two = { w: sel.name, sd: otherSide(sideOf(sel)), f }; keepTwo(); select(sel); afterEdit();
+};
+$('wTwoAt').addEventListener('pointerdown', () => pushUndo());
+$('wTwoAt').oninput = () => { $('wTwoAtO').textContent = $('wTwoAt').value + '%'; if (tools.two && isWeapon(sel) && tools.two.w === sel.name) { tools.two.f = +$('wTwoAt').value / 100; keepTwo(); } };
+$('wTwoAt').onchange = () => afterEdit();
+// bowstrings
+const stringGroup = new THREE.Group(); scene.add(stringGroup);
+const stringMat = new THREE.MeshStandardMaterial({ color: '#dcd2bb', roughness: 0.8 });
+for (let i = 0; i < 2; i++) { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 1, 6), stringMat); m.visible = false; m.castShadow = true; stringGroup.add(m); }
+function rod(m, a, b) { m.visible = true; m.position.copy(a).lerp(b, 0.5); m.scale.set(1, a.distanceTo(b), 1); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()); }
+function updateString() {
+  const t = tools.string, wb = t && fig && byName.get(t.w), hand = t && fig && byName.get(otherSide(t.w[0]) + ' Hand');
+  if (!wb || !hand || !wInfo(wb)) { for (const m of stringGroup.children) m.visible = false; return; }
+  const [a, b] = wEnds(wb), n = fistCentre(otherSide(t.w[0])); rod(stringGroup.children[0], a, n); rod(stringGroup.children[1], b, n);
+}
+$('wString').onchange = () => { if (!isWeapon(sel)) return; pushUndo(); tools.string = $('wString').checked ? { w: sel.name } : null; afterEdit(); };
+// camera views
+function viewFrom(kind) {
+  if (!fig) return; fig.updateMatrixWorld(true); for (const m of skinned) m.computeBoundingBox();
+  const bb = new THREE.Box3().setFromObject(fig), c = bb.getCenter(new THREE.Vector3()), h = Math.max(bb.max.y - bb.min.y, 1);
+  let dir, dist = h * 2.2;
+  if (kind === 'sel' && sel) { c.copy(wpos(sel)); dist = h * 0.75; dir = camera.position.clone().sub(orbit.target).normalize(); }
+  else { const a = fig.rotation.y + (kind === 'side' ? Math.PI / 2 : kind === 'back' ? Math.PI : 0); dir = new THREE.Vector3(Math.sin(a), 0.18, Math.cos(a)).normalize(); }
+  orbit.target.copy(c); camera.position.copy(c).addScaledVector(dir, dist);
+}
+document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => viewFrom(b.dataset.view));
+addEventListener('keydown', (e) => { if (e.target.closest && e.target.closest('input,textarea,select')) return; if (e.key === 'f' || e.key === 'F') viewFrom('sel'); });
+// send to Claude: the pose, two pictures and the notes in one file
+function picture(kind) {
+  const W_ = 640, H_ = 800, r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true }); r.setSize(W_, H_); r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.15;
+  const was = { vis: markers.visible, helper: tcon.getHelper().visible, dot: ikDot.visible };
+  markers.visible = false; tcon.getHelper().visible = false; ikDot.visible = false;
+  fig.updateMatrixWorld(true); for (const m of skinned) m.computeBoundingBox();
+  const bb = new THREE.Box3().setFromObject(fig), c = bb.getCenter(new THREE.Vector3()), h = Math.max(bb.max.y - bb.min.y, bb.max.x - bb.min.x, bb.max.z - bb.min.z);
+  const a = fig.rotation.y + (kind === 'side' ? Math.PI / 2 : 0.35), cam = new THREE.PerspectiveCamera(30, W_ / H_, 0.05, 100);
+  cam.position.set(c.x + Math.sin(a) * h * 2.2, c.y + h * 0.2, c.z + Math.cos(a) * h * 2.2); cam.lookAt(c);
+  r.render(scene, cam); const url = r.domElement.toDataURL('image/jpeg', 0.85); r.dispose();
+  markers.visible = was.vis; tcon.getHelper().visible = was.helper; ikDot.visible = was.dot; return url;
+}
+$('sendClaude').onclick = () => { if (!fig || !skinned.length) return toast('Open a rigged model first'); $('dlgC').showModal(); };
+$('dlgC').addEventListener('close', () => {
+  if ($('dlgC').returnValue !== 'ok') return;
+  const file = { kind: 'figure-poser-for-claude', version: 1, model: current, notes: $('cNotes').value.trim(), made: new Date().toISOString(), pose: poseJson(), pictures: { front: picture('front'), side: picture('side') } };
+  download(new Blob([JSON.stringify(file)], { type: 'application/json' }), (current || 'figure') + ' for Claude.json');
+  toast('Saved. Attach the file in your chat with Claude.');
+});
+
 // ------------------------------------------------------------ loop
 buildBase(); listModels(); listFigs();
-renderer.setAnimationLoop(() => { orbit.update(); if (fig) updateMarkers(); renderer.render(scene, camera); });
-window.__poser = { THREE, openGlb, select, byName: () => byName, bones: () => bones, poseJson, applyPose, fitFeet, PRESETS, fig: () => fig, rest: () => rest, rootBone, skinned: () => skinned, aimBone, exportGlb, bakedGroup, thumbnail, markers, buildBase };
+renderer.setAnimationLoop(() => { orbit.update(); if (fig) { updateMarkers(); updateString(); } renderer.render(scene, camera); });
+window.__poser = { THREE, openGlb, select, byName: () => byName, bones: () => bones, poseJson, applyPose, fitFeet, PRESETS, fig: () => fig, rest: () => rest, rootBone, skinned: () => skinned, aimBone, exportGlb, bakedGroup, thumbnail, markers, buildBase, tools, setGrip, seatWeapon, keepTwo, ik, wInfo, wEnds, viewFrom, startReach, stopReach, reachTo, ikTarget, picture, updateString, toolState };
 </script>
 </body></html>
