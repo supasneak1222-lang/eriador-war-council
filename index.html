@@ -490,7 +490,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=18345623cb').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=facdbed600').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -3055,7 +3055,7 @@ function renderSettings() {
     h += `<div class="setrow"><span>Graphics<small>On this computer only. Lighter runs faster on older machines.</small></span><span class="seg2">${Object.keys(QUALITY).map(k => `<button class="${quality === k ? 'on' : ''}" data-q="${k}">${k}</button>`).join('')}</span></div>`;
     h += `<div class="setrow"><span>My Fell Beast<small>A rigged Fell Beast model (.glb) to fly over Mordor in place of the board's own · kept in this browser only, never uploaded or sent to other players${FELL.mine ? ' · yours is flying' : FELL.stored ? ' · yours flies in Gondor' : ''}</small></span><span class="seg2"><button data-fbload>${FELL.stored ? 'Replace' : 'Load'}</button>${FELL.stored ? '<button data-fbdel>Remove</button>' : ''}</span></div>`;
     if (Object.keys(LANDMARKS).length) h += `<div class="setrow"><span>Landmarks<small>Move, turn, size and set the ground under this map's landmarks · saved in this browser</small></span><button data-lmopen>Adjust</button></div>`;
-    h += `<div class="setrow"><span>Credits<small>Minas Tirith: a scan of the city by PapaH (from a Sketchfab scan), CC BY-NC. Barad-dûr, Minas Morgul, Helm's Deep and the Golden Hall: models by Zajic73, used with permission. Orthanc: by 3DMN, CC BY-NC. Nazgûl on Fell Beast: by Cadel, used with permission. All coloured for the board. Ships: Tabletop Simulator models.</small></span></div>`;
+    h += `<div class="setrow"><span>Credits<small>Minas Tirith: a scan of the city by PapaH (from a Sketchfab scan), CC BY-NC. Barad-dûr, Minas Morgul, Helm's Deep and the Golden Hall: models by Zajic73, used with permission. Orthanc: by 3DMN, CC BY-NC. Nazgûl on Fell Beast: by Cadel, used with permission. Fell beasts: after art by Khalin, used with permission. All coloured for the board. Ships: Tabletop Simulator models.</small></span></div>`;
     h += `<div class="setrow"><span>Who throws the dice<small>The War Council throws them for you, or each player throws their own in the tray</small></span><span class="seg2" style="flex-direction:column;align-items:flex-end">${['Good', 'Evil'].map(sd => `<span class="seg2"><b style="font-weight:600;margin-right:6px">${sd}</b>${[['auto', 'War Council'], ['player', 'Player']].map(([k, l]) => `<button class="${((st.diceBy || {})[sd] || 'auto') === k ? 'on' : ''}" data-sa="diceby~${sd}~${k}">${l}</button>`).join('')}</span>`).join('')}</span></div>`;
     h += `<div class="setrow"><span>Theatre<small>${esc(theatreInfo())}</small></span><span class="seg2">${['Eriador', 'Rohan', 'Gondor', 'North'].map(t => `<button class="${(st.theatre || 'Eriador') === t ? 'on' : ''}" data-sa="theatre~${t}">${t}</button>`).join('')}</span></div>`;
     h += sw(st.hoverInfo !== false, 'hovertog', 'Map hover info', 'What is in a territory when the pointer is over it');
@@ -4665,7 +4665,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map(), BASE_LEADERS = [], MY_FIGS = [];
 function mergeLeaders() { LEADERS = [...MY_FIGS, ...BASE_LEADERS]; LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); try { if (S) { syncScene(); renderCard(); } if (figPick) renderFigGrid(); } catch (e) { /* the page is still starting */ } }
-fetch('models/leaders/index.json?v=18345623cb').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=facdbed600').then(r => r.ok ? r.json() : []).then(list => {
   BASE_LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); mergeLeaders();
 }).catch(() => {});
 // figures posed in the Figure Poser: kept in this browser only (never uploaded or sent to other players)
@@ -4896,7 +4896,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=18345623cb').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=facdbed600').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -5002,6 +5002,12 @@ const FB_ROUTES = [{ c: [0.68, 0.2], r: [0.07, 0.075], w: 0.11, y: 10.5, a: 0 },
 function clearFellBeasts() { for (const f of FELL.list) scene.remove(f.outer); FELL.list.length = 0; FELL.mine = false; }
 async function initBoardFellBeasts() {
   const ROUTES = FB_ROUTES;
+  // the board's own: a rigged fell beast after art by Khalin; Cadel's Nazgûl is the fallback if it can't load
+  try {
+    const j = await fetch('models/FellBeastKhalin.json').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    const glb = Uint8Array.from(atob(j.glb), c => c.charCodeAt(0)).buffer;
+    if (await initRiggedFellBeasts(glb, ROUTES)) return;
+  } catch (e) { console.warn('Fell Beasts:', e); }
   let base; try { base = await loadModel('FellBeast', { size: 2.7, maxH: 10 }); } catch (e) { console.warn('Fell Beasts:', e); return; }
   // unpack the model's compressed positions into plain model space, so the wing hinges can be placed in the model's own measurements
   const root = base.children[0]; root.updateMatrixWorld(true);
