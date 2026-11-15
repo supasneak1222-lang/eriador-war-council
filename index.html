@@ -490,7 +490,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=80e97e05e9').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=18345623cb').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -3053,6 +3053,7 @@ function renderSettings() {
     h += `<div class="setrow"><span>Sweep across the board when a turn begins<small>On this computer only</small></span><button class="${cineOn() ? 'on' : ''}" data-cine>${cineOn() ? 'On' : 'Off'}</button></div>`;
     h += `<div class="setrow"><span>How fast pieces travel the roads</span><span class="seg2">${['Slow', 'Normal', 'Fast'].map(k => `<button class="${(st.driveSpeed || 'Normal') === k ? 'on' : ''}" data-sa="drivespeed~${k}">${k}</button>`).join('')}</span></div>`;
     h += `<div class="setrow"><span>Graphics<small>On this computer only. Lighter runs faster on older machines.</small></span><span class="seg2">${Object.keys(QUALITY).map(k => `<button class="${quality === k ? 'on' : ''}" data-q="${k}">${k}</button>`).join('')}</span></div>`;
+    h += `<div class="setrow"><span>My Fell Beast<small>A rigged Fell Beast model (.glb) to fly over Mordor in place of the board's own · kept in this browser only, never uploaded or sent to other players${FELL.mine ? ' · yours is flying' : FELL.stored ? ' · yours flies in Gondor' : ''}</small></span><span class="seg2"><button data-fbload>${FELL.stored ? 'Replace' : 'Load'}</button>${FELL.stored ? '<button data-fbdel>Remove</button>' : ''}</span></div>`;
     if (Object.keys(LANDMARKS).length) h += `<div class="setrow"><span>Landmarks<small>Move, turn, size and set the ground under this map's landmarks · saved in this browser</small></span><button data-lmopen>Adjust</button></div>`;
     h += `<div class="setrow"><span>Credits<small>Minas Tirith: a scan of the city by PapaH (from a Sketchfab scan), CC BY-NC. Barad-dûr, Minas Morgul, Helm's Deep and the Golden Hall: models by Zajic73, used with permission. Orthanc: by 3DMN, CC BY-NC. Nazgûl on Fell Beast: by Cadel, used with permission. All coloured for the board. Ships: Tabletop Simulator models.</small></span></div>`;
     h += `<div class="setrow"><span>Who throws the dice<small>The War Council throws them for you, or each player throws their own in the tray</small></span><span class="seg2" style="flex-direction:column;align-items:flex-end">${['Good', 'Evil'].map(sd => `<span class="seg2"><b style="font-weight:600;margin-right:6px">${sd}</b>${[['auto', 'War Council'], ['player', 'Player']].map(([k, l]) => `<button class="${((st.diceBy || {})[sd] || 'auto') === k ? 'on' : ''}" data-sa="diceby~${sd}~${k}">${l}</button>`).join('')}</span>`).join('')}</span></div>`;
@@ -3115,6 +3116,17 @@ function renderSettings() {
   const nth = $('nTheatre');
   if (nth) nth.onchange = () => { const th = nth.value, m = (S.theatreMaps || {})[(th === 'Rohan' || th === 'Gondor' || th === 'North') ? th : 'Eriador'] || {}; $('nCapG').innerHTML = capOpts(th, m.capGood); $('nCapE').innerHTML = capOpts(th, m.capEvil); };
   const oc = $('openChron'); if (oc) oc.onclick = () => { chronicleOn = true; lsSet('eriador.chronicleOn', '1'); writeChronicle(); };
+  el.querySelectorAll('[data-fbload]').forEach(b => b.onclick = () => {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.glb';
+    inp.onchange = async () => { const f = inp.files[0]; if (!f) return;
+      try { await loadMyFellBeast(f); toast(MAP_KEY === 'Gondor' ? 'Your Fell Beast is flying over Mordor' : 'Your Fell Beast is saved: it flies when you play in Gondor'); }
+      catch (e) { toast('Couldn’t use that file: ' + (e.message || e), 'err'); }
+      renderSettings(); };
+    inp.click(); });
+  el.querySelectorAll('[data-fbdel]').forEach(b => b.onclick = async () => {
+    if (!confirm('Remove your Fell Beast from this browser? The board’s own Fell Beasts come back. Your file on disk is not touched.')) return;
+    try { await removeMyFellBeast(); toast('The board’s Fell Beasts are back'); } catch (e) { toast('Couldn’t remove it: ' + (e.message || e), 'err'); }
+    renderSettings(); });
   el.querySelectorAll('[data-lmopen]').forEach(b => b.onclick = () => { $('settings').hidden = true; openLandmarks(); });
   el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => {
     quality = b.dataset.q; try { localStorage.setItem('eriador.quality', quality); } catch (e) {}
@@ -4653,7 +4665,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map(), BASE_LEADERS = [], MY_FIGS = [];
 function mergeLeaders() { LEADERS = [...MY_FIGS, ...BASE_LEADERS]; LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); try { if (S) { syncScene(); renderCard(); } if (figPick) renderFigGrid(); } catch (e) { /* the page is still starting */ } }
-fetch('models/leaders/index.json?v=80e97e05e9').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=18345623cb').then(r => r.ok ? r.json() : []).then(list => {
   BASE_LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); mergeLeaders();
 }).catch(() => {});
 // figures posed in the Figure Poser: kept in this browser only (never uploaded or sent to other players)
@@ -4884,7 +4896,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=80e97e05e9').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=18345623cb').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4977,14 +4989,19 @@ const SHIP_SPAWNS = { Eriador: [['gondor', 0.06, 0.585], ['gondor', 0.11, 0.55]]
   Gondor: [['gondor', 0.3, 0.8], ['gondor', 0.38, 0.73], ['corsair', 0.2, 0.86], ['corsair', 0.12, 0.72]], Rohan: [], North: [] };
 // ------------------------------------------------------------------ Nazgûl on their Fell Beasts, circling over Mordor (Gondor theatre)
 const FELL = { list: [] };
+// each circles its own patch of Mordor: centre (u, v), radii (as a share of the board), speed, height and a start angle
+const FB_ROUTES = [{ c: [0.68, 0.2], r: [0.07, 0.075], w: 0.11, y: 10.5, a: 0 }, { c: [0.6, 0.285], r: [0.05, 0.07], w: -0.14, y: 9, a: 2.2 },
+  { c: [0.77, 0.27], r: [0.06, 0.09], w: 0.09, y: 11.5, a: 4.1 }];
 (async function initFellBeasts() {
+  // a rigged Fell Beast loaded in this browser (Settings, or the Figure Poser) takes the place of the board's own
+  const mine = await myFellBeastGlb(); FELL.stored = !!mine;
   if (MAP_KEY !== 'Gondor') return;
-  // each circles its own patch of Mordor: centre (u, v), radii (as a share of the board), speed, height and a start angle
-  const ROUTES = [{ c: [0.68, 0.2], r: [0.07, 0.075], w: 0.11, y: 10.5, a: 0 }, { c: [0.6, 0.285], r: [0.05, 0.07], w: -0.14, y: 9, a: 2.2 },
-    { c: [0.77, 0.27], r: [0.06, 0.09], w: 0.09, y: 11.5, a: 4.1 }];
-  // a rigged Fell Beast the player has opened in the Figure Poser (kept in this browser only) takes the place of the board's own
-  const mine = await myFellBeastGlb();
-  if (mine) try { if (await initRiggedFellBeasts(mine, ROUTES)) return; } catch (e) { console.warn('My Fell Beast:', e); }
+  if (mine) try { if (await initRiggedFellBeasts(mine, FB_ROUTES)) { FELL.mine = true; return; } } catch (e) { console.warn('My Fell Beast:', e); }
+  await initBoardFellBeasts();
+})();
+function clearFellBeasts() { for (const f of FELL.list) scene.remove(f.outer); FELL.list.length = 0; FELL.mine = false; }
+async function initBoardFellBeasts() {
+  const ROUTES = FB_ROUTES;
   let base; try { base = await loadModel('FellBeast', { size: 2.7, maxH: 10 }); } catch (e) { console.warn('Fell Beasts:', e); return; }
   // unpack the model's compressed positions into plain model space, so the wing hinges can be placed in the model's own measurements
   const root = base.children[0]; root.updateMatrixWorld(true);
@@ -5014,7 +5031,7 @@ const FELL = { list: [] };
     tilt.add(lean); outer.add(tilt); scene.add(outer);
     FELL.list.push({ R, outer, tilt, bones });
   }
-})();
+}
 // ------------------------------------------------------------------ the Fell Beast's skeleton, built on the model when it loads
 // Measured on the model (its own units, Y up): the body runs along D from tail to head through C; L points out to its right side.
 const FB = { C: [-4, 18], D: [-0.8749, 0.4845], L: [0.4845, 0.8749] };
@@ -5082,10 +5099,12 @@ async function myFellBeastGlb() {
   try {
     const d = await myFigDb();
     const keys = await new Promise((res, rej) => { const q = d.transaction('rigs').objectStore('rigs').getAllKeys(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); });
-    const pick = keys.filter(k => /fell\s*beast/i.test(k)).sort((a, b) => a.length - b.length)[0];
-    if (!pick) return null;
-    const r = await new Promise((res, rej) => { const q = d.transaction('rigs').objectStore('rigs').get(pick); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
-    return r && r.glb || null;
+    let best = null;
+    for (const k of keys.filter(k => /fell\s*beast/i.test(k))) {   // the newest one loaded
+      const r = await new Promise((res, rej) => { const q = d.transaction('rigs').objectStore('rigs').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+      if (r && r.glb && (!best || (r.at || 0) > (best.at || 0))) best = r;
+    }
+    return best ? best.glb : null;
   } catch (e) { return null; }
 }
 const FB_SPAN = 4.2;                                     // wingspan on the board
@@ -5110,6 +5129,24 @@ async function initRiggedFellBeasts(glb, ROUTES) {
   return true;
 }
 const fbE = new THREE.Euler(), fbQ3 = new THREE.Quaternion();
+// Settings: load a rigged Fell Beast file into this browser, or go back to the board's own
+async function loadMyFellBeast(file) {
+  const glb = await file.arrayBuffer();
+  const g = await new Promise((res, rej) => gltf.parse(glb.slice(0), '', res, rej));
+  const names = new Set(); g.scene.traverse(o => { if (o.isBone) names.add(o.name.replace(/_/g, ' ')); });
+  if (!names.has('Body') || !names.has('L Wing 1') || !names.has('R Wing 1')) throw new Error('This model has no Fell Beast bones (Body, L Wing 1, R Wing 1).');
+  const d = await myFigDb();
+  await new Promise((res, rej) => { const t = d.transaction('rigs', 'readwrite'); t.objectStore('rigs').put({ name: 'Fell Beast', glb, pose: null, at: Date.now() }); t.oncomplete = res; t.onerror = () => rej(t.error); });
+  FELL.stored = true;
+  if (MAP_KEY === 'Gondor') { clearFellBeasts(); if (await initRiggedFellBeasts(glb, FB_ROUTES)) FELL.mine = true; else await initBoardFellBeasts(); }
+}
+async function removeMyFellBeast() {
+  const d = await myFigDb();
+  const keys = await new Promise((res, rej) => { const q = d.transaction('rigs').objectStore('rigs').getAllKeys(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); });
+  await new Promise((res, rej) => { const t = d.transaction('rigs', 'readwrite'); for (const k of keys) if (/fell\s*beast/i.test(k)) t.objectStore('rigs').delete(k); t.oncomplete = res; t.onerror = () => rej(t.error); });
+  FELL.stored = false;
+  if (MAP_KEY === 'Gondor') { clearFellBeasts(); await initBoardFellBeasts(); }
+}
 function fbTurn(b, x, y, z) { if (!b) return; b.quaternion.copy(b.userData.rq).multiply(fbQ3.setFromEuler(fbE.set(x, y, z, 'YXZ'))); }
 // the model's rest pose is a glide, wings spread: the beat swings them about it (its head looks along +z, its left wing is +x)
 function fbPoseRigged(B, t, seed) {
