@@ -468,6 +468,7 @@ a.rule:hover{border-color:var(--gold)}
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import * as CANNON from 'cannon-es';
 
 const $ = (id) => document.getElementById(id);
@@ -489,7 +490,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=9f79e2f47a').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=80e97e05e9').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -4652,7 +4653,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map(), BASE_LEADERS = [], MY_FIGS = [];
 function mergeLeaders() { LEADERS = [...MY_FIGS, ...BASE_LEADERS]; LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); try { if (S) { syncScene(); renderCard(); } if (figPick) renderFigGrid(); } catch (e) { /* the page is still starting */ } }
-fetch('models/leaders/index.json?v=9f79e2f47a').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=80e97e05e9').then(r => r.ok ? r.json() : []).then(list => {
   BASE_LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); mergeLeaders();
 }).catch(() => {});
 // figures posed in the Figure Poser: kept in this browser only (never uploaded or sent to other players)
@@ -4883,7 +4884,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=9f79e2f47a').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=80e97e05e9').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
@@ -4981,6 +4982,9 @@ const FELL = { list: [] };
   // each circles its own patch of Mordor: centre (u, v), radii (as a share of the board), speed, height and a start angle
   const ROUTES = [{ c: [0.68, 0.2], r: [0.07, 0.075], w: 0.11, y: 10.5, a: 0 }, { c: [0.6, 0.285], r: [0.05, 0.07], w: -0.14, y: 9, a: 2.2 },
     { c: [0.77, 0.27], r: [0.06, 0.09], w: 0.09, y: 11.5, a: 4.1 }];
+  // a rigged Fell Beast the player has opened in the Figure Poser (kept in this browser only) takes the place of the board's own
+  const mine = await myFellBeastGlb();
+  if (mine) try { if (await initRiggedFellBeasts(mine, ROUTES)) return; } catch (e) { console.warn('My Fell Beast:', e); }
   let base; try { base = await loadModel('FellBeast', { size: 2.7, maxH: 10 }); } catch (e) { console.warn('Fell Beasts:', e); return; }
   // unpack the model's compressed positions into plain model space, so the wing hinges can be placed in the model's own measurements
   const root = base.children[0]; root.updateMatrixWorld(true);
@@ -5071,6 +5075,57 @@ function fbPose(B, t, seed) {
   B.tail1.quaternion.copy(fbQ.setFromAxisAngle(FB_UP, 0.06 * swish)).multiply(fbQ2.setFromAxisAngle(FB_SIDE, R.tail1));   // straight out behind, a slow gentle sway
   B.root.position.y = B.root.userData.at.y - 1.2 * Math.cos(beat) * glide;   // the body lifts a little on each downstroke
 }
+// ------------------------------------------------------------------ a rigged Fell Beast from the player's own browser
+// Opened once in the Figure Poser (any model named "Fell Beast…" with bones Body, Neck n, Head, Tail n, L/R Wing n, L/R Leg n).
+// It never leaves this browser: other players see the board's own Fell Beasts.
+async function myFellBeastGlb() {
+  try {
+    const d = await myFigDb();
+    const keys = await new Promise((res, rej) => { const q = d.transaction('rigs').objectStore('rigs').getAllKeys(); q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error); });
+    const pick = keys.filter(k => /fell\s*beast/i.test(k)).sort((a, b) => a.length - b.length)[0];
+    if (!pick) return null;
+    const r = await new Promise((res, rej) => { const q = d.transaction('rigs').objectStore('rigs').get(pick); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); });
+    return r && r.glb || null;
+  } catch (e) { return null; }
+}
+const FB_SPAN = 4.2;                                     // wingspan on the board
+async function initRiggedFellBeasts(glb, ROUTES) {
+  const made = [], g = await new Promise((res, rej) => gltf.parse(glb.slice(0), '', res, rej));
+  for (const R of ROUTES) {
+    const o = cloneSkinned(g.scene), B = {};
+    o.traverse((m) => {
+      if (m.isBone) { m.name = m.name.replace(/_/g, ' '); B[m.name] = m; m.userData.rq = m.quaternion.clone(); m.userData.rp = m.position.clone(); }
+      if (m.isMesh) { m.castShadow = true; m.frustumCulled = false; m.material = m.material.clone(); if (m.material.color) m.material.color.setScalar(1.6); m.material.roughness = 0.8; m.material.metalness = 0; }
+    });
+    if (!B['Body'] || !B['L Wing 1'] || !B['R Wing 1']) return false;
+    B.tails = Object.keys(B).filter(k => /^Tail \d+$/.test(k)).sort((a, b) => parseInt(a.slice(5)) - parseInt(b.slice(5))).map(k => B[k]);
+    B.necks = Object.keys(B).filter(k => /^Neck \d+$/.test(k)).sort((a, b) => parseInt(a.slice(5)) - parseInt(b.slice(5))).map(k => B[k]);
+    o.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(o), c = box.getCenter(new THREE.Vector3()), sc = FB_SPAN / Math.max(1e-6, box.max.x - box.min.x);
+    const holder = new THREE.Group(); holder.scale.setScalar(sc); holder.position.copy(c).multiplyScalar(-sc); holder.add(o);
+    const outer = new THREE.Group(), tilt = new THREE.Group(); tilt.add(holder); outer.add(tilt);
+    made.push({ R, outer, tilt, bones: B, rigged: true });
+  }
+  for (const f of made) { scene.add(f.outer); FELL.list.push(f); }
+  return true;
+}
+const fbE = new THREE.Euler(), fbQ3 = new THREE.Quaternion();
+function fbTurn(b, x, y, z) { if (!b) return; b.quaternion.copy(b.userData.rq).multiply(fbQ3.setFromEuler(fbE.set(x, y, z, 'YXZ'))); }
+// the model's rest pose is a glide, wings spread: the beat swings them about it (its head looks along +z, its left wing is +x)
+function fbPoseRigged(B, t, seed) {
+  const beat = t * 2.1 + seed * 1.7, glide = 0.5 + 0.5 * Math.sin(t * 0.21 + seed);      // heavy, slow beats that ease off into long glides
+  const up = (0.42 * Math.sin(beat) + 0.06) * glide, mid = (0.32 * Math.sin(beat - 0.6)) * glide, tip = (0.26 * Math.sin(beat - 1.1)) * glide;
+  const sweep = 0.1 * Math.cos(beat) * glide;                                             // the wing reaches forward on the downstroke
+  fbTurn(B['L Wing 1'], 0, sweep, up); fbTurn(B['R Wing 1'], 0, -sweep, -up);
+  fbTurn(B['L Wing 2'], 0, 0, mid); fbTurn(B['R Wing 2'], 0, 0, -mid);
+  for (const k of ['3', '2a 1', '2b 1']) { fbTurn(B['L Wing ' + k], 0, 0, tip); fbTurn(B['R Wing ' + k], 0, 0, -tip); }
+  const sway = Math.sin(t * 0.7 + seed), nod = Math.sin(beat - 1.3) * glide, n = B.necks.length || 1;
+  B.necks.forEach((b, i) => fbTurn(b, 0.05 * nod / n * 3 - 0.02, 0.22 * sway / n, 0));
+  fbTurn(B['Head'], -0.06 * nod + 0.05, 0.08 * Math.sin(t * 1.1 + seed * 3), 0);
+  B.tails.forEach((b, i) => fbTurn(b, 0.025 * Math.sin(beat - 0.5 - i * 0.35) * glide, 0.07 * Math.sin(t * 1.2 + seed * 2 - i * 0.45), 0));
+  for (const s of ['L', 'R']) { fbTurn(B[s + ' Leg 2'], 1.2, 0, 0); fbTurn(B[s + ' Leg 4'], 0.6, 0, 0); }   // legs drawn up and trailing
+  const body = B['Body']; body.position.copy(body.userData.rp); body.position.y -= 1.5 * Math.cos(beat) * glide;   // lifts on each downstroke
+}
 function stepFellBeasts(dt, now) {
   if (!FELL.list.length) return;
   const t = (window.__wt ?? now / 1000);
@@ -5083,7 +5138,7 @@ function stepFellBeasts(dt, now) {
     f.outer.rotation.y = Math.atan2(du * BW, dv * BD);
     f.tilt.rotation.z = 0.32 * k + 0.05 * Math.sin(t * 1.3 + R.a);   // banking into the turn
     f.tilt.rotation.x = 0.06 * Math.sin(t * 0.9 + R.a);
-    fbPose(f.bones, t, R.a);
+    (f.rigged ? fbPoseRigged : fbPose)(f.bones, t, R.a);
   }
 }
 (function initWaterLife() {
