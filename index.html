@@ -490,7 +490,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=facdbed600').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=4913441b8d').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -2348,8 +2348,9 @@ function armyCard(a) {
     <button data-act="disband~${a.id}" title="Press twice to confirm. Building stage.">Disband (refund ${I.refund} RP)</button>
     <button data-twice="destroy~${a.id}" title="Remove it from the campaign outright (destroyed, no retreat). Press twice.">Destroy</button></div>`;
   if (open.edit) h += `<div class="form" style="margin-top:8px"><div class="row"><input id="aRename" placeholder="New name" value="${esc(a.name)}"><button data-act="arename~${a.id}" data-f="aRename=aRename">Rename</button></div>
+    <div class="row"><span style="align-self:center">Points</span><select id="aSizeFix">${[400, 600, 800, 1000].map(v => `<option value="${v}" ${a.size === v ? 'selected' : ''}>${v} pts</option>`).join('')}</select><button data-act="asize~${a.id}" data-f="aSizeFix=aSizeFix" ${a.upTo ? 'disabled title="Wait for its upgrade to finish"' : ''}>Set points</button></div>
     <div class="row"><label><input type="checkbox" data-act="aflag~${a.id}~cavalry" ${a.cavalry ? 'checked' : ''}> Cavalry only</label><label><input type="checkbox" data-act="aflag~${a.id}~canMarch" ${a.canMarch ? 'checked' : ''}> Heroic March</label></div>
-    ${note('Fixing these is free and can be done in any stage.')}
+    ${note('Fixing these is free and can be done in any stage. New points must still fit your Point Cap.')}
     <input id="eLeader" placeholder="Leader" value="${esc(a.leader || '')}"><input id="eList" placeholder="List" value="${esc(a.list || '')}"><input id="eUnits" placeholder="Units" value="${esc(a.units || '')}">
     <button data-act="edit~${a.id}" data-f="eLeader=eLeader,eList=eList,eUnits=eUnits">Save details · ${I.editCost} RP</button>
     ${I.rosterLine ? `<small style="color:var(--dim)">Roster: ${esc(I.rosterLine)}</small><div class="rlines">${(I.rosterLines || []).map(l => `<div>${esc(l.replace(/^\* /, '★ '))}</div>`).join('')}</div>` : ''}
@@ -4665,7 +4666,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map(), BASE_LEADERS = [], MY_FIGS = [];
 function mergeLeaders() { LEADERS = [...MY_FIGS, ...BASE_LEADERS]; LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); try { if (S) { syncScene(); renderCard(); } if (figPick) renderFigGrid(); } catch (e) { /* the page is still starting */ } }
-fetch('models/leaders/index.json?v=facdbed600').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=4913441b8d').then(r => r.ok ? r.json() : []).then(list => {
   BASE_LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); mergeLeaders();
 }).catch(() => {});
 // figures posed in the Figure Poser: kept in this browser only (never uploaded or sent to other players)
@@ -4896,7 +4897,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=facdbed600').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=4913441b8d').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }

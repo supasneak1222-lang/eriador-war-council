@@ -665,6 +665,27 @@ function setArmyFlag(a, key, side)
   return true
 end
 function isCavalry(a) return a and (a.cavalry or isWolfPack(a.list)) and true or false end
+-- Fix an army's points (its size) after raising. Free, any stage, but it must still fit the Point Cap.
+function setArmySize(a, size, side)
+  if not a then return "Choose an army." end
+  if side and a.side ~= side and not S.settings.override then return "That isn't your army." end
+  size = tonumber(size)
+  local ok = false
+  for _, s in ipairs(SIZES) do if s == size then ok = true end end
+  if not ok then return "Choose 400, 600, 800 or 1000 points." end
+  if size == a.size then return "It's already " .. size .. " points." end
+  if a.upTo then return a.name .. " is being upgraded to " .. a.upTo .. " points: wait for that to finish first." end
+  if not a.fangorn and not a.freeCap and not S.settings.override and armyPoints(a.side, a) + size > armyCap(a.side) then
+    return "That would take your armies to " .. (armyPoints(a.side, a) + size) .. " points, over your Point Cap of " .. armyCap(a.side) .. "."
+  end
+  local old = a.size
+  a.size = size
+  if a.tablePts and a.tablePts > size then a.tablePts = nil end
+  if (a.carried or 0) > size then a.carried = size end
+  clog(a.name .. ": points set to " .. size .. " (was " .. old .. ", correction).", a.side, "armies")
+  return true
+end
+
 
 function baseArmyMove(a)
   local m
@@ -12469,7 +12490,7 @@ local NO_UNDO = { refresh = true, bprompt = true, pickopen = true, pickclose = t
                   bpok = true, bpopen = true, webcode = true, repnew = true, repback = true, repview = true, repedit = true, repfill = true,
                   cards = true, cardbig = true, deal = true, cardsclr = true,
                   sndtest = true, mapupdate = true, sumok = true, sumshow = true, sumhist = true, perftog = true, perfrep = true, prewarmtog = true }
-local UNDO_LABEL = { apick = "Pick up supplies", afill = "Fill up supplies", adrop = "Drop off supplies", arename = "Rename army", prio = "Priority roll", first = "Choose who acts first", adv = "Advance stage", ready = "Ready", force = "Force advance",
+local UNDO_LABEL = { apick = "Pick up supplies", afill = "Fill up supplies", adrop = "Drop off supplies", arename = "Rename army", asize = "Change army points", prio = "Priority roll", first = "Choose who acts first", adv = "Advance stage", ready = "Ready", force = "Force advance",
   own = "Change owner", stock = "Stockpile correction", build = "Start construction", raise = "Raise army", move = "Move army",
   rep = "Replenish", up = "Upgrade army", edit = "Edit army", disband = "Disband army", retreat = "Retreat", destroy = "Destroy army",
   recruit = "Recruit agent", gmove = "Move agent", gact = "Agent action", gdis = "Dismiss agent", bprio = "Battle priority roll",
@@ -12844,6 +12865,7 @@ function uiRun(player, arg)
     if r == true then f.aRP = nil end
     say(pk, r, ar and (((a == "adrop") and "Dropped off " or "Picked up ") .. math.abs((ar.carried or 0) - had) .. " RP. " .. ar.name .. " now carries " .. (ar.carried or 0) .. " RP.") or nil)
   elseif a == "aflag" then r = setArmyFlag(armyById(p1), p2, side); say(pk, r, "Army updated.")
+  elseif a == "asize" then local ar = armyById(p1); r = setArmySize(ar, f.aSizeFix, side); say(pk, r, ar and (ar.name .. " is now " .. ar.size .. " points.") or nil)
   elseif a == "arename" then
     local ar = armyById(p1)
     r = renameArmy(ar, f.aRename)
