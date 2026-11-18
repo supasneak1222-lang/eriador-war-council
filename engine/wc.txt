@@ -1438,11 +1438,13 @@ function upgradeArmy(a, rr)
   return true
 end
 
+-- The refund is the usual share of its raising cost, scaled by how much of the army is left (an army at -50% returns half).
 function disbandRefund(a)
   local base = armyBuildCost(a)
+  local left = math.max(0, 100 - (a.damage or 0)) / 100
   if a.result == "Quartered" then return 0 end
-  if a.result == "Broken" then return math.floor(base * 0.25) end
-  return math.floor(base * 0.5)
+  if a.result == "Broken" then return math.floor(base * 0.25 * left) end
+  return math.floor(base * 0.5 * left)
 end
 
 function disbandArmy(a)

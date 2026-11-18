@@ -490,7 +490,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=4913441b8d').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=d1e70db4bf').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -1813,7 +1813,7 @@ function foughtNow() { return new Set((S.battles || []).filter(b => b.t === S.tu
 let bForm = {};
 function openBattle(n) { battleOpen = n; battleSwap = false; bForm = { n }; renderLeft(); lookAt(n); try { versusSplash(n); } catch (e) { console.error(e); } }
 const OUT_TIPS = {
-  Broken: 'Loses half its carried RP (the winner takes half of that; twice as much if it was conquering the winner\'s land). Must retreat 2+ territories. Disbanding later refunds 25%.',
+  Broken: 'Loses half its carried RP (the winner takes half of that; twice as much if it was conquering the winner\'s land). Must retreat 2+ territories. Disbanding later refunds 25%, scaled by how much of the army is left.',
   Quartered: 'Loses 75% of its carried RP (the winner takes half of that; all of it if it was conquering the winner\'s land). Must retreat 2+ territories. No Warband Leaders left at the end? Record it as Destroyed.',
   Destroyed: 'The army is removed. The winner takes half of everything it carried.' };
 const DUEL_TIPS = { none: 'No Heroic Duel was fought.', atk: 'The defender\'s Leader lost the duel and is absent until the end of next turn.', def: 'The attacker\'s Leader lost the duel and is absent until the end of next turn.' };
@@ -2345,7 +2345,7 @@ function armyCard(a) {
   h += cardsBlock(a);
   h += `<h3>Army</h3><div class="row"><button data-toggle="edit">${open.edit ? 'Close' : 'Edit / roster'}</button>
     <button data-act="canmarch~${a.id}" class="${a.canMarch ? 'on' : ''}" title="Whether this army's leader has Heroic March">Heroic March ${a.canMarch ? 'yes' : 'no'}</button>
-    <button data-act="disband~${a.id}" title="Press twice to confirm. Building stage.">Disband (refund ${I.refund} RP)</button>
+    <button data-act="disband~${a.id}" title="Press twice to confirm. Building stage. The refund is scaled by how much of the army is left.">Disband (refund ${I.refund} RP)</button>
     <button data-twice="destroy~${a.id}" title="Remove it from the campaign outright (destroyed, no retreat). Press twice.">Destroy</button></div>`;
   if (open.edit) h += `<div class="form" style="margin-top:8px"><div class="row"><input id="aRename" placeholder="New name" value="${esc(a.name)}"><button data-act="arename~${a.id}" data-f="aRename=aRename">Rename</button></div>
     <div class="row"><span style="align-self:center">Points</span><select id="aSizeFix">${[400, 600, 800, 1000].map(v => `<option value="${v}" ${a.size === v ? 'selected' : ''}>${v} pts</option>`).join('')}</select><button data-act="asize~${a.id}" data-f="aSizeFix=aSizeFix" ${a.upTo ? 'disabled title="Wait for its upgrade to finish"' : ''}>Set points</button></div>
@@ -4666,7 +4666,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map(), BASE_LEADERS = [], MY_FIGS = [];
 function mergeLeaders() { LEADERS = [...MY_FIGS, ...BASE_LEADERS]; LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); try { if (S) { syncScene(); renderCard(); } if (figPick) renderFigGrid(); } catch (e) { /* the page is still starting */ } }
-fetch('models/leaders/index.json?v=4913441b8d').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=d1e70db4bf').then(r => r.ok ? r.json() : []).then(list => {
   BASE_LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); mergeLeaders();
 }).catch(() => {});
 // figures posed in the Figure Poser: kept in this browser only (never uploaded or sent to other players)
@@ -4897,7 +4897,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=4913441b8d').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=d1e70db4bf').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }
