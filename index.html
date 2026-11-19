@@ -490,7 +490,7 @@ function luaCall(fn, ...args) {
   const s = lua.lua_tojsstring(L, -1); lua.lua_pop(L, 1); return s;
 }
 for (const [f, n] of [['json', 'json.lua'], ['shim', 'tts_shim.lua'], ['wc', 'WarCouncil.lua'], ['bridge', 'bridge.lua']]) {
-  luaRun(await fetch('engine/' + f + '.txt?v=d1e70db4bf').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
+  luaRun(await fetch('engine/' + f + '.txt?v=d2331f9ae7').then(r => r.text()), n); tick(n === 'WarCouncil.lua' ? 'Loading the map' : null);
 }
 
 let S = null;               // the campaign, as the War Council has it
@@ -1813,6 +1813,7 @@ function foughtNow() { return new Set((S.battles || []).filter(b => b.t === S.tu
 let bForm = {};
 function openBattle(n) { battleOpen = n; battleSwap = false; bForm = { n }; renderLeft(); lookAt(n); try { versusSplash(n); } catch (e) { console.error(e); } }
 const OUT_TIPS = {
+  Unharmed: 'Lost the battle but came through unharmed: it keeps all its carried RP and doesn\'t have to retreat. Its casualties still count.',
   Broken: 'Loses half its carried RP (the winner takes half of that; twice as much if it was conquering the winner\'s land). Must retreat 2+ territories. Disbanding later refunds 25%, scaled by how much of the army is left.',
   Quartered: 'Loses 75% of its carried RP (the winner takes half of that; all of it if it was conquering the winner\'s land). Must retreat 2+ territories. No Warband Leaders left at the end? Record it as Destroyed.',
   Destroyed: 'The army is removed. The winner takes half of everything it carried.' };
@@ -1877,10 +1878,10 @@ function battlePanel() {
     let fate = '';
     if (lost) {
       const o = bForm['out_' + a.id] || 'Broken', full = S.armies.find(x => x.id === a.id), lock = full && full.retreatTurn && S.turn <= full.retreatTurn + 2;
-      fate = `<label>Outcome <select data-bf="out_${a.id}">${['Broken', 'Quartered', 'Destroyed'].map(k => opt(k, k, o === k)).join('')}</select></label>
-        ${o === 'Destroyed' ? '' : lock ? `<label class="dim"><input type="checkbox" disabled> Called the retreat · retreated on turn ${full.retreatTurn}, can again on turn ${full.retreatTurn + 3}</label>`
+      fate = `<label>Outcome <select data-bf="out_${a.id}">${['Unharmed', 'Broken', 'Quartered', 'Destroyed'].map(k => opt(k, k, o === k)).join('')}</select></label>
+        ${o === 'Destroyed' || o === 'Unharmed' ? '' : lock ? `<label class="dim"><input type="checkbox" disabled> Called the retreat · retreated on turn ${full.retreatTurn}, can again on turn ${full.retreatTurn + 3}</label>`
           : `<label><input type="checkbox" data-bf="ret_${a.id}" ${bForm['ret_' + a.id] ? 'checked' : ''}> Called the retreat${bForm['ret_' + a.id] && o === 'Quartered' ? ' · counts as Broken' : ''}</label>`}
-        <small style="flex-basis:100%;color:var(--dim)">${OUT_TIPS[bForm['ret_' + a.id] && o !== 'Destroyed' ? 'Broken' : o]}</small>`;
+        <small style="flex-basis:100%;color:var(--dim)">${OUT_TIPS[bForm['ret_' + a.id] && o !== 'Destroyed' && o !== 'Unharmed' ? 'Broken' : o]}</small>`;
     }
     if (!lost) fate = `<label title="A winning army that lost every warband leader takes 25% more casualties. It can't fall below 25% strength this way."><input type="checkbox" data-bf="lead_${a.id}" ${bForm['lead_' + a.id] ? 'checked' : ''}> Every warband leader was slain (+25% casualties)</label>`;
     return `<div class="cas-row ${a.side}"><b>${esc(a.name)}${lost ? ' <span class="pill warn">lost</span>' : ''}</b>${fate}
@@ -4666,7 +4667,7 @@ function stepFlair3(dt, now) { stepSites(dt); stepAgentTraces(dt, now); stepSeas
 // ------------------------------------------------------------------ leader figures: each army hides behind its plain model until the enemy learns who it is
 let LEADERS = [], LEADER_BY = new Map(), BASE_LEADERS = [], MY_FIGS = [];
 function mergeLeaders() { LEADERS = [...MY_FIGS, ...BASE_LEADERS]; LEADER_BY = new Map(LEADERS.map(l => [l.id, l])); try { if (S) { syncScene(); renderCard(); } if (figPick) renderFigGrid(); } catch (e) { /* the page is still starting */ } }
-fetch('models/leaders/index.json?v=d1e70db4bf').then(r => r.ok ? r.json() : []).then(list => {
+fetch('models/leaders/index.json?v=d2331f9ae7').then(r => r.ok ? r.json() : []).then(list => {
   BASE_LEADERS = (list || []).map(l => ({ ...l, side: /^Good/.test(l.side || '') ? 'Good' : /^Evil/.test(l.side || '') ? 'Evil' : l.side })); mergeLeaders();
 }).catch(() => {});
 // figures posed in the Figure Poser: kept in this browser only (never uploaded or sent to other players)
@@ -4795,7 +4796,7 @@ function versusSplash(n, force) {
   const close = () => { el.className = 'hide'; setTimeout(() => { el.hidden = true; }, 500); clearTimeout(t1); };
   const t1 = setTimeout(() => { if (!window.__holdOverlays) close(); }, 4200); el.onclick = close;
 }
-const OUTCOME_TXT = { Broken: 'The enemy broke and fled', Quartered: 'The enemy was cut down to a quarter', Wiped: 'The enemy was wiped out', Draw: 'Neither side could claim the field' };
+const OUTCOME_TXT = { Unharmed: 'The enemy fell back unharmed', Broken: 'The enemy broke and fled', Quartered: 'The enemy was cut down to a quarter', Wiped: 'The enemy was wiped out', Draw: 'Neither side could claim the field' };
 function resultCeremony(b) {
   const el = $('ceremony'), win = b.win === 'Good' || b.win === 'Evil' ? b.win : null;
   const names = (b.names && (b.names[acting] || b.names.All)) || ['Attacker', 'Defender'];
@@ -4897,7 +4898,7 @@ function loadSkin(id) {
 }
 loadSkin(DICE_SKIN.Good); loadSkin(DICE_SKIN.Evil);
 let DICE_SETS = null;
-function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=d1e70db4bf').then(r => r.ok ? r.json() : []).catch(() => [])); }
+function diceSets() { return DICE_SETS || (DICE_SETS = fetch('dice/index.json?v=d2331f9ae7').then(r => r.ok ? r.json() : []).catch(() => [])); }
 function faceMat(side, n) {
   const sk = DICE_SKIN[side] && skinFaces[DICE_SKIN[side]];
   if (Array.isArray(sk)) { const k2 = DICE_SKIN[side] + ':' + n; if (!faceCache[k2]) { const m = new THREE.MeshStandardMaterial({ map: sk[n - 1], roughness: 0.42 }); m.userData.v = n; faceCache[k2] = m; } return faceCache[k2]; }

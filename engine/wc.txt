@@ -2028,7 +2028,7 @@ local function surgeonFor(a)
   for _, g in ipairs(S.agents) do if g.army == a.id and g.type == "Surgeon" then return g end end
 end
 
--- p: terr, atk, def (army id or "garrison"), winner ("atk"/"def"), outcome ("Broken"/"Quartered"/"Destroyed"),
+-- p: terr, atk, def (army id or "garrison"), winner ("atk"/"def"), outcome ("Unharmed"/"Broken"/"Quartered"/"Destroyed"),
 --    casA, casD (percent), duel ("none"/"atk"/"def")
 -- A battle may have several armies a side (reinforcements, sieges). p.atk / p.def are the lead armies; p.atkAll and
 -- p.defAll list every army that fought ("12,15"); p.cas gives each army's casualty % ("12:20,15:5"). The losing side
@@ -2082,12 +2082,12 @@ function applyBattle(p)
   end
   local function outOf(x)
     local o = outs[x.id] or p.outcome or "Broken"
-    if o ~= "Broken" and o ~= "Quartered" and o ~= "Destroyed" then o = "Broken" end
+    if o ~= "Broken" and o ~= "Quartered" and o ~= "Destroyed" and o ~= "Unharmed" then o = "Broken" end
     if azogX == x.id and o ~= "Destroyed" then o = "Quartered" end
     return o
   end
   local function retOf(x)
-    if outOf(x) == "Destroyed" then return false end
+    if outOf(x) == "Destroyed" or outOf(x) == "Unharmed" then return false end
     if anyRets or p.outs then return rets[x.id] == true end
     return p.retreat and x == Lz or false
   end
@@ -2122,6 +2122,7 @@ function applyBattle(p)
   local winNames = atkWon and aNames or dNames
   local function fate(x)
     if azogX == x.id then return "lost its leader to Azog's blade and counts as " .. outOf(x) end
+    if outOf(x) == "Unharmed" then return "was left unharmed" end
     return retOf(x) and "called the retreat and counts as Broken" or ("was " .. outOf(x))
   end
   local summary = { "Battle at " .. tname(n) .. ": " .. aNames .. " vs " .. dNames .. ". " .. winNames .. " won." }
@@ -2174,10 +2175,11 @@ function applyBattle(p)
     local outcome = finalOut(x)
     local carried = x.carried or 0
     local lost
-    if outcome == "Destroyed" then lost = carried
+    if outcome == "Unharmed" then lost = 0
+    elseif outcome == "Destroyed" then lost = carried
     elseif outcome == "Quartered" then lost = math.floor(carried * 0.75)
     else lost = math.floor(carried * 0.5) end
-    if doubleDrop and outcome ~= "Destroyed" then
+    if doubleDrop and outcome ~= "Destroyed" and outcome ~= "Unharmed" then
       lost = math.min(carried, lost * 2)
       table.insert(summary, R(x) .. " was beaten while conquering " .. WS .. " land and drops twice the supplies.")
     end
@@ -2185,13 +2187,15 @@ function applyBattle(p)
     x.carried = carried - lost
     if lost > 0 then table.insert(summary, R(x) .. " lost " .. lost .. " RP of supplies.") end
     if gain > 0 then capture(gain) end
-    x.result = outcome
+    x.result = (outcome ~= "Unharmed") and outcome or nil
   end
   for _, x in ipairs(LS_) do
     local outcome = finalOut(x)
     if outcome == "Destroyed" then
       table.insert(summary, R(x) .. " was destroyed.")
       removeArmy(x)
+    elseif outcome == "Unharmed" then
+      table.insert(summary, R(x) .. " lost the battle but was left unharmed: no supplies lost, and it need not retreat.")
     else
       x.needsRetreat = true
       table.insert(summary, R(x) .. " must retreat in the Retreat stage.")
@@ -9946,7 +9950,7 @@ local function tabBattles(pk)
     local out = f.bOut or "Broken"
     local rk = { row({ heading("Result"), ruleBtn(pk, "battles") }, 26) }
     table.insert(rk, field("Winner", choice(pk, "bWin", { { "atk", an }, { "def", dn } }, { onColors = BTN_GOOD })))
-    table.insert(rk, field("Loser was", choice(pk, "bOut", { "Broken", "Quartered", "Destroyed" }, { default = "Broken", tips = TIPS.outcome })))
+    table.insert(rk, field("Loser was", choice(pk, "bOut", { "Unharmed", "Broken", "Quartered", "Destroyed" }, { default = "Broken", tips = TIPS.outcome })))
     table.insert(rk, field("", txt(TIPS.outcome[out] or "", { size = 12, color = C.dim, h = 18 })))
     table.insert(rk, field("", toggle(pk, "bRetreat", "Loser called the retreat" .. ((f.bRetreat == "True" and out == "Quartered") and "  - counts as Broken, not Quartered" or ""),
                                       { tip = "An army that called the retreat counts as Broken even if it fell below 25% - unless it was destroyed." })))
